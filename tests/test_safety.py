@@ -231,7 +231,10 @@ def test_paper_order_identification():
 
 def test_no_committed_credential_fields():
     repo = Path(__file__).resolve().parents[1]
-    config_files = [repo / "config.example.yaml", repo / "config.yaml"]
+    config_files = [repo / "config.example.yaml"]
+    local_config = repo / "config.yaml"
+    if local_config.exists():
+        config_files.append(local_config)
     forbidden = ("api_key", "client_code", "password", "totp_secret", "access_token", "refresh_token")
 
     for path in config_files:
