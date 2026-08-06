@@ -1,0 +1,38 @@
+trading:
+  mode: paper
+  require_manual_approval: true
+  confidence_threshold: 75
+  symbols:
+    - exchange: NSE
+      symbol: SBIN-EQ
+      token: "3045"
+      quantity: 1
+      timeframe: FIVE_MINUTE
+
+risk:
+  capital: 100000
+  risk_per_trade_pct: 0.5
+  max_daily_loss_pct: 2.0
+  max_trades_per_day: 5
+  stop_after_consecutive_losses: 3
+  max_position_value_pct: 10
+  avoid_high_impact_news: true
+
+strategy:
+  ema_fast: 9
+  ema_slow: 21
+  ema_trend: 50
+  rsi_period: 14
+  atr_period: 14
+  min_reward_risk: 1.5
+
+news:
+  enabled: true
+  rss_feeds:
+    - https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx
+  manual_headlines:
+    - "RBI keeps policy stance stable as inflation remains within target band"
+    - "Crude oil prices remain volatile amid geopolitical tensions"
+
+logging:
+  decision_log: logs/decisions.jsonl

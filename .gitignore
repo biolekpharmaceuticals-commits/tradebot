@@ -1,0 +1,13 @@
+.env
+.env.*
+config.yaml
+logs/
+*.log
+.pytest_cache/
+**pycache**/
+*.pyc
+*.pyo
+.venv/
+venv/
+credentials*
+secrets*
