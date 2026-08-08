@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -314,6 +315,13 @@ def set_angel_env(monkeypatch):
     monkeypatch.setenv("ANGEL_ONE_TOTP_SECRET", "JBSWY3DPEHPK3PXP")
 
 
+def set_sentinel_angel_env(monkeypatch):
+    monkeypatch.setenv("ANGEL_ONE_API_KEY", "SENTINEL_API_KEY_SECRET")
+    monkeypatch.setenv("ANGEL_ONE_CLIENT_CODE", "SENTINEL_CLIENT_CODE_SECRET")
+    monkeypatch.setenv("ANGEL_ONE_PIN", "SENTINEL_PIN_SECRET")
+    monkeypatch.setenv("ANGEL_ONE_TOTP_SECRET", "JBSWY3DPEHPK3PXP")
+
+
 def fixed_clock():
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -385,6 +393,110 @@ def test_angel_market_data_authentication_failure_is_sanitized(monkeypatch):
     assert str(exc_info.value) == "Angel One authentication failed"
     assert "secret" not in str(exc_info.value).lower()
     assert "jwt" not in str(exc_info.value).lower()
+
+
+def assert_sanitized_traceback(exc_info, expected_message: str, sentinels: tuple[str, ...]):
+    formatted = "".join(traceback.format_exception(exc_info.type, exc_info.value, exc_info.tb))
+
+    assert str(exc_info.value) == expected_message
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__suppress_context__ is True
+    for sentinel in sentinels:
+        assert sentinel not in formatted
+
+
+def test_client_factory_failure_traceback_is_sanitized(monkeypatch):
+    set_sentinel_angel_env(monkeypatch)
+    sentinels = (
+        "SENTINEL_API_KEY_SECRET",
+        "SENTINEL_PIN_SECRET",
+        "SENTINEL_JWT_TOKEN_SECRET",
+        "SENTINEL_REFRESH_TOKEN_SECRET",
+        "SENTINEL_FEED_TOKEN_SECRET",
+    )
+    factory_calls = []
+
+    def failing_factory(api_key):
+        factory_calls.append(api_key)
+        raise RuntimeError(
+            f"{api_key} SENTINEL_PIN_SECRET SENTINEL_JWT_TOKEN_SECRET "
+            "SENTINEL_REFRESH_TOKEN_SECRET SENTINEL_FEED_TOKEN_SECRET"
+        )
+
+    provider = AngelOneMarketDataProvider(client_factory=failing_factory, clock=fixed_clock)
+
+    with pytest.raises(MarketDataError) as exc_info:
+        provider.get_candles({"exchange": "NSE", "token": "3045", "timeframe": "FIVE_MINUTE"})
+
+    assert factory_calls == ["SENTINEL_API_KEY_SECRET"]
+    assert_sanitized_traceback(exc_info, "Angel One authentication failed", sentinels)
+
+
+def test_authentication_exception_traceback_is_sanitized(monkeypatch):
+    set_sentinel_angel_env(monkeypatch)
+    sentinels = (
+        "SENTINEL_API_KEY_SECRET",
+        "SENTINEL_CLIENT_CODE_SECRET",
+        "SENTINEL_PIN_SECRET",
+        "SENTINEL_JWT_TOKEN_SECRET",
+        "SENTINEL_REFRESH_TOKEN_SECRET",
+        "SENTINEL_FEED_TOKEN_SECRET",
+    )
+
+    class FailingAuthClient(FakeSmartClient):
+        def __init__(self, api_key):
+            super().__init__()
+            self.api_key = api_key
+            self.generate_session_called = False
+
+        def generateSession(self, client_code, pin, totp_value):
+            self.generate_session_called = True
+            raise RuntimeError(
+                f"{self.api_key} {client_code} {pin} SENTINEL_JWT_TOKEN_SECRET "
+                "SENTINEL_REFRESH_TOKEN_SECRET SENTINEL_FEED_TOKEN_SECRET"
+            )
+
+    fake_client = FailingAuthClient("SENTINEL_API_KEY_SECRET")
+    provider = AngelOneMarketDataProvider(client_factory=lambda api_key: fake_client, clock=fixed_clock)
+
+    with pytest.raises(MarketDataError) as exc_info:
+        provider.get_candles({"exchange": "NSE", "token": "3045", "timeframe": "FIVE_MINUTE"})
+
+    assert fake_client.generate_session_called is True
+    assert_sanitized_traceback(exc_info, "Angel One authentication failed", sentinels)
+
+
+def test_candle_retrieval_exception_traceback_is_sanitized(monkeypatch):
+    set_angel_env(monkeypatch)
+    sentinels = (
+        "SENTINEL_API_KEY_SECRET",
+        "SENTINEL_PIN_SECRET",
+        "SENTINEL_CANDLE_JWT_TOKEN_SECRET",
+        "SENTINEL_CANDLE_REFRESH_TOKEN_SECRET",
+        "SENTINEL_CANDLE_FEED_TOKEN_SECRET",
+    )
+
+    class FailingCandleClient(FakeSmartClient):
+        def __init__(self):
+            super().__init__()
+            self.get_candle_data_called = False
+
+        def getCandleData(self, params):
+            self.get_candle_data_called = True
+            raise RuntimeError(
+                "SENTINEL_API_KEY_SECRET SENTINEL_PIN_SECRET SENTINEL_CANDLE_JWT_TOKEN_SECRET "
+                "SENTINEL_CANDLE_REFRESH_TOKEN_SECRET "
+                "SENTINEL_CANDLE_FEED_TOKEN_SECRET"
+            )
+
+    fake_client = FailingCandleClient()
+    provider = AngelOneMarketDataProvider(client_factory=lambda api_key: fake_client, clock=fixed_clock)
+
+    with pytest.raises(MarketDataError) as exc_info:
+        provider.get_candles({"exchange": "NSE", "token": "3045", "timeframe": "FIVE_MINUTE"})
+
+    assert fake_client.get_candle_data_called is True
+    assert_sanitized_traceback(exc_info, "Angel One candle retrieval failed", sentinels)
 
 
 def test_market_data_provider_selection(tmp_path):

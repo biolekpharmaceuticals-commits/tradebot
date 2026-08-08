@@ -47,13 +47,14 @@ class AngelOneMarketDataProvider:
         self._client = None
 
     def get_candles(self, symbol_config: dict) -> pd.DataFrame:
-        client = self._authenticated_client()
-        params = self._candle_params(symbol_config)
-
         try:
+            client = self._authenticated_client()
+            params = self._candle_params(symbol_config)
             response = client.getCandleData(params)
-        except Exception as exc:
-            raise MarketDataError("Angel One candle retrieval failed") from exc
+        except MarketDataError:
+            raise
+        except Exception:
+            raise MarketDataError("Angel One candle retrieval failed") from None
 
         return self._candles_to_frame(response)
 
@@ -61,10 +62,9 @@ class AngelOneMarketDataProvider:
         if self._client is not None:
             return self._client
 
-        values = self._read_environment()
-        client = self.client_factory(values["ANGEL_ONE_API_KEY"])
-
         try:
+            values = self._read_environment()
+            client = self.client_factory(values["ANGEL_ONE_API_KEY"])
             import pyotp
 
             totp_value = pyotp.TOTP(values["ANGEL_ONE_TOTP_SECRET"]).now()
@@ -73,8 +73,10 @@ class AngelOneMarketDataProvider:
                 values["ANGEL_ONE_PIN"],
                 totp_value,
             )
-        except Exception as exc:
-            raise MarketDataError("Angel One authentication failed") from exc
+        except MarketDataError:
+            raise
+        except Exception:
+            raise MarketDataError("Angel One authentication failed") from None
 
         if not isinstance(response, dict) or response.get("status") is not True:
             raise MarketDataError("Angel One authentication failed")
@@ -131,8 +133,8 @@ class AngelOneMarketDataProvider:
                         "volume": int(volume),
                     }
                 )
-            except (TypeError, ValueError) as exc:
-                raise MarketDataError("Angel One candle response was malformed") from exc
+            except (TypeError, ValueError):
+                raise MarketDataError("Angel One candle response was malformed") from None
 
         return pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
 
@@ -140,8 +142,8 @@ class AngelOneMarketDataProvider:
     def _default_client_factory(api_key: str):
         try:
             from SmartApi import SmartConnect
-        except ImportError as exc:
-            raise MarketDataError("smartapi-python is required for Angel One market data") from exc
+        except ImportError:
+            raise MarketDataError("smartapi-python is required for Angel One market data") from None
         return SmartConnect(api_key=api_key)
 
     @staticmethod
