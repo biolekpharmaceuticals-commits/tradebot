@@ -34,5 +34,9 @@ news:
     - "RBI keeps policy stance stable as inflation remains within target band"
     - "Crude oil prices remain volatile amid geopolitical tensions"
 
+market_data:
+  provider: demo
+  lookback_days: 5
+
 logging:
   decision_log: logs/decisions.jsonl

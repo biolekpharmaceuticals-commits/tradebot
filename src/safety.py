@@ -10,7 +10,7 @@ class SafetyConfigError(ValueError):
 
 
 class LiveTradingDisabledError(RuntimeError):
-    """Raised when any Release 1 path attempts live order submission."""
+    """Raised when any Release path attempts live order submission."""
 
 
 @dataclass(frozen=True)
@@ -39,15 +39,16 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
     risk = require_section(raw, "risk")
     require_section(raw, "news")
     require_section(raw, "logging")
+    market_data = require_section(raw, "market_data")
 
     configured_mode = require_string(trading, "mode").lower()
     trading_mode = os.getenv("TRADING_MODE", configured_mode).strip().lower()
     if trading_mode != "paper":
-        raise SafetyConfigError("Release 1 supports TRADING_MODE=paper only")
+        raise SafetyConfigError("Release 2 supports TRADING_MODE=paper only")
 
     live_trading_enabled = env_bool("LIVE_TRADING_ENABLED", False)
     if live_trading_enabled:
-        raise SafetyConfigError("LIVE_TRADING_ENABLED cannot be true in Release 1")
+        raise SafetyConfigError("LIVE_TRADING_ENABLED cannot be true in Release 2")
 
     kill_switch_active = env_bool("KILL_SWITCH_ACTIVE", True)
 
@@ -61,7 +62,7 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
         raise SafetyConfigError("trading.symbols must be a non-empty list")
 
     if require_bool(risk, "avoid_high_impact_news") is not True:
-        raise SafetyConfigError("risk.avoid_high_impact_news must remain true in Release 1")
+        raise SafetyConfigError("risk.avoid_high_impact_news must remain true in Release 2")
 
     for key in (
         "capital",
@@ -73,6 +74,10 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
     ):
         if key not in risk:
             raise SafetyConfigError(f"risk.{key} is required")
+
+    from .market_data import validate_market_data_config
+
+    validate_market_data_config(market_data)
 
     return SafetySettings(
         trading_mode=trading_mode,

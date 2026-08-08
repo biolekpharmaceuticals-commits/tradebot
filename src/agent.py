@@ -8,6 +8,7 @@ import pandas as pd
 from .broker import PaperBroker
 from .config import AppConfig
 from .logger import DecisionLogger
+from .market_data import build_market_data_provider
 from .news import NewsAnalyzer
 from .risk import RiskManager
 from .strategy import TrendStrategy
@@ -18,6 +19,7 @@ class TradingAgent:
         self.config = config
         trading = config.section("trading")
         self.broker = PaperBroker()
+        self.market_data = build_market_data_provider(config.section("market_data"))
         self.strategy = TrendStrategy(config.section("strategy"))
         self.news_analyzer = NewsAnalyzer()
         self.risk = RiskManager(config.section("risk"))
@@ -30,7 +32,7 @@ class TradingAgent:
         if not symbols:
             raise ValueError("No symbols configured")
         for symbol_config in symbols:
-            candles = self.broker.get_candles(symbol_config)
+            candles = self.market_data.get_candles(symbol_config)
             self._evaluate_symbol(symbol_config, candles)
 
     def run_once_with_candles(self, candles: pd.DataFrame) -> None:
