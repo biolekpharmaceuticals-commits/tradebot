@@ -41,10 +41,10 @@ class AngelOneBroker:
         self._smart = None
 
     def _client(self):
-        raise LiveTradingDisabledError("Angel One live API access is disabled in Release 1")
+        raise LiveTradingDisabledError("Angel One live order API access is disabled in Release 2")
 
     def get_candles(self, symbol_config: dict) -> pd.DataFrame:
         raise NotImplementedError("Wire historical candle fetch for your exact exchange/timeframe before live use")
 
     def place_order(self, symbol_config: dict, signal: TradeSignal, quantity: int) -> OrderResult:
-        raise LiveTradingDisabledError("Live order submission is disabled in Release 1")
+        raise LiveTradingDisabledError("Live order submission is disabled in Release 2")
