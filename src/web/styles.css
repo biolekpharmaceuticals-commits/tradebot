@@ -51,6 +51,8 @@ h2 { margin-bottom: 18px; font-size: 1.15rem; }
 .meter i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--green)); transition: width .3s ease; }
 
 .grid { display: grid; gap: 14px; margin-bottom: 14px; }
+.scanner-panel { margin-bottom: 14px; }
+.backtest-panel { margin-bottom: 14px; }
 .two-column { grid-template-columns: minmax(0, 1.35fr) minmax(360px, .85fr); }
 .panel { min-width: 0; padding: 22px; }
 .panel-heading { display: flex; justify-content: space-between; gap: 16px; align-items: start; }

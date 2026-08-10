@@ -122,7 +122,7 @@ def test_strategy_records_indicator_values_and_point_breakdown():
 
     explanation = signal.strategy
     assert explanation["name"] == "EMA + VWAP + RSI + MACD + News + Bulk Deals"
-    assert explanation["version"] == "3.0"
+    assert explanation["version"] == "4.0"
     assert set(explanation["indicators"]) >= {"ema_fast", "ema_slow", "ema_trend", "vwap", "rsi", "macd", "atr"}
     factors = explanation["factors"]
     assert len(factors) == 6

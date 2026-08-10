@@ -24,7 +24,7 @@ class TradeSignal:
 
 class TrendStrategy:
     NAME = "EMA + VWAP + RSI + MACD + News + Bulk Deals"
-    VERSION = "3.0"
+    VERSION = "4.0"
 
     def __init__(self, config: dict) -> None:
         self.config = config
@@ -34,15 +34,21 @@ class TrendStrategy:
         candles: pd.DataFrame,
         news: NewsSignal,
         bulk_deals: BulkDealSignal | None = None,
+        instrument_type: str = "equity",
     ) -> TradeSignal:
-        df = add_indicators(
+        is_index = instrument_type.lower() == "index"
+        enriched = add_indicators(
             candles,
             ema_fast=int(self.config.get("ema_fast", 9)),
             ema_slow=int(self.config.get("ema_slow", 21)),
             ema_trend=int(self.config.get("ema_trend", 50)),
             rsi_period=int(self.config.get("rsi_period", 14)),
             atr_period=int(self.config.get("atr_period", 14)),
-        ).dropna()
+        )
+        required_indicators = ["ema_fast", "ema_slow", "ema_trend", "rsi", "macd", "macd_signal", "atr"]
+        if not is_index:
+            required_indicators.append("vwap")
+        df = enriched.dropna(subset=required_indicators)
 
         if df.empty:
             return TradeSignal(
@@ -78,7 +84,15 @@ class TrendStrategy:
         else:
             _add_factor(factors, "EMA stack", "Neutral", 0, "EMA values are not fully aligned")
 
-        if close > latest["vwap"]:
+        if is_index:
+            _add_factor(
+                factors,
+                "VWAP",
+                "Not applicable",
+                0,
+                "Spot indices have no traded volume, so VWAP is excluded",
+            )
+        elif close > latest["vwap"]:
             bullish_points += 15
             reasons.append("Price is above VWAP")
             _add_factor(factors, "VWAP", "Bullish", 15, "Close is above VWAP")
@@ -176,7 +190,7 @@ class TrendStrategy:
             "ema_fast": _round(latest["ema_fast"]),
             "ema_slow": _round(latest["ema_slow"]),
             "ema_trend": _round(latest["ema_trend"]),
-            "vwap": _round(latest["vwap"]),
+            "vwap": None if is_index else _round(latest["vwap"]),
             "rsi": _round(latest["rsi"]),
             "macd": _round(latest["macd"]),
             "macd_signal": _round(latest["macd_signal"]),
@@ -198,7 +212,7 @@ class TrendStrategy:
     def _explanation(
         self,
         factors: list[dict[str, object]],
-        indicators: dict[str, float],
+        indicators: dict[str, object],
         bullish_points: int,
         bearish_points: int,
     ) -> dict[str, object]:

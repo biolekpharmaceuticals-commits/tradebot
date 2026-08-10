@@ -1,6 +1,6 @@
 # Angel One Paper Trading Agent
 
-This is a cautious starter framework for an Angel One SmartAPI trading agent. Release 3 remains paper-trading-only and cannot submit live Angel One orders.
+This is a cautious starter framework for an Angel One SmartAPI trading agent. Release 4 remains paper-trading-only and cannot submit live Angel One orders.
 
 ## What It Does
 
@@ -15,6 +15,7 @@ This is a cautious starter framework for an Angel One SmartAPI trading agent. Re
 - Records the indicator values and point-by-point strategy explanation for each decision
 - Adds optional, read-only NSE bulk-deal context with a maximum 10-point confidence contribution
 - Serves a private read-only dashboard through a localhost-only FastAPI process and authenticated HTTPS proxy
+- Optionally ranks a controlled universe by signal confidence and recent liquidity, then sends only the top candidate through the paper-trading safety gates
 
 ## Important Safety Notes
 
@@ -102,6 +103,53 @@ The server refuses `0.0.0.0` and other public bind addresses. In production, kee
 - `deploy/Caddyfile.example`
 
 Generate the Caddy password hash interactively with `caddy hash-password`; never commit the password or resulting production configuration. The SmartAPI callback path remains outside dashboard authentication, while all dashboard routes require authentication.
+
+## Release 4 Automatic Scanner
+
+The scanner is disabled by default. It compares only explicitly approved symbols under `trading.symbols`; it does not discover or trade arbitrary instruments. Enable it after adding at least two valid Angel One instruments:
+
+```yaml
+scanner:
+  enabled: true
+  max_candidates: 20
+  min_average_volume: 100000
+```
+
+Directional candidates with sufficient recent average volume are ranked by confidence, followed by average traded turnover. The selected symbol and full ranking are written to the decision log and dashboard. Unavailable symbols are skipped with sanitized error text. Selection cannot bypass the confidence threshold, risk checks, high-impact-news block, manual approval, kill switch, or paper-only broker.
+
+NIFTY 50 (`99926000`) and NIFTY BANK (`99926009`) spot indices are supported as read-only underlying signals on NSE. Because a spot index is not itself traded, the scanner excludes VWAP and the equity-volume threshold for those two signals.
+
+Release 4 can use those signals to discover current NFO contracts from Angel One's instrument master. Contract tokens are resolved at runtime rather than hard-coded because they change with expiry:
+
+```yaml
+derivatives:
+  enabled: true
+  instruments: [futures, options]
+  option_buying_only: true
+  option_strikes: 1
+  max_expiry_days: 45
+  max_contracts: 6
+  timeframe: FIVE_MINUTE
+  timeout_seconds: 10
+```
+
+The nearest unexpired index future and nearest-expiry directional option are evaluated. Bullish underlying signals consider call buying; bearish signals consider put buying. Option selling is rejected by configuration validation. Lot size, expiry, strike, trading symbol, and token come from the current instrument master. F&O discovery and candle retrieval are read-only, and all resulting decisions still pass through the existing paper-only safety gates.
+
+## Release 4 Walk-Forward Backtesting
+
+Backtesting can be enabled for the selected cash, index, futures, or long-option candidate:
+
+```yaml
+backtesting:
+  enabled: true
+  minimum_candles: 80
+  holding_bars: 12
+  round_trip_cost_bps: 10
+```
+
+The engine evaluates each signal using only candles available at that point, prevents overlapping simulated trades, deducts configured round-trip costs, and uses a conservative stop-first result when a candle touches both stop and target. Current news and bulk-deal information are forced to neutral during historical evaluation to avoid look-ahead contamination. The dashboard reports trade count, win rate, net compounded return, maximum drawdown, average trade, and profit factor.
+
+Backtest results are research estimates, not guarantees. They do not model every tax, brokerage charge, spread, liquidity constraint, gap, rejection, or execution delay. Expired F&O history may also be limited by the broker's available historical data.
 
 ## Run Paper Trading Demo
 

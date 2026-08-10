@@ -81,7 +81,7 @@ class FixedStrategy:
     def __init__(self, trade_signal: TradeSignal) -> None:
         self.trade_signal = trade_signal
 
-    def evaluate(self, candles, news, bulk_deals=None):
+    def evaluate(self, candles, news, bulk_deals=None, instrument_type="equity"):
         return self.trade_signal
 
 

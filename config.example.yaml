@@ -8,6 +8,42 @@ trading:
       token: "3045"
       quantity: 1
       timeframe: FIVE_MINUTE
+      instrument_type: equity
+    - exchange: NSE
+      symbol: NIFTY 50
+      token: "99926000"
+      quantity: 1
+      timeframe: FIVE_MINUTE
+      instrument_type: index
+    - exchange: NSE
+      symbol: NIFTY BANK
+      token: "99926009"
+      quantity: 1
+      timeframe: FIVE_MINUTE
+      instrument_type: index
+
+scanner:
+  enabled: false
+  max_candidates: 20
+  min_average_volume: 100000
+
+derivatives:
+  enabled: false
+  instruments:
+    - futures
+    - options
+  option_buying_only: true
+  option_strikes: 1
+  max_expiry_days: 45
+  max_contracts: 6
+  timeframe: FIVE_MINUTE
+  timeout_seconds: 10
+
+backtesting:
+  enabled: false
+  minimum_candles: 80
+  holding_bars: 12
+  round_trip_cost_bps: 10
 
 risk:
   capital: 100000

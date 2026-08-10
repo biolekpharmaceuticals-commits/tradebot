@@ -48,6 +48,40 @@
         </article>
       </section>
 
+      <section class="panel scanner-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">AUTOMATIC SELECTION</p>
+            <h2>Scanner ranking</h2>
+          </div>
+          <span id="scannerStatus" class="badge">—</span>
+        </div>
+        <p id="scannerExplanation" class="subtle">No scanner result recorded.</p>
+        <div class="table-wrap compact">
+          <table>
+            <thead><tr><th>Rank</th><th>Contract</th><th>Type</th><th>Expiry</th><th>Lot</th><th>Decision</th><th>Confidence</th><th>Avg volume</th><th>Status</th></tr></thead>
+            <tbody id="scannerRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel backtest-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">HISTORICAL VALIDATION</p>
+            <h2>Walk-forward backtest</h2>
+          </div>
+          <span id="backtestStatus" class="badge">—</span>
+        </div>
+        <div class="bulk-summary backtest-summary">
+          <div><span>Trades</span><strong id="backtestTrades">0</strong></div>
+          <div><span>Win rate</span><strong id="backtestWinRate">—</strong></div>
+          <div><span>Net return</span><strong id="backtestReturn">—</strong></div>
+          <div><span>Max drawdown</span><strong id="backtestDrawdown">—</strong></div>
+        </div>
+        <p id="backtestExplanation" class="subtle">No backtest result recorded.</p>
+      </section>
+
       <section class="grid two-column">
         <article class="panel">
           <div class="panel-heading">

@@ -24,6 +24,8 @@ function renderLatest(record) {
   const risk = record.risk || {};
   const news = record.news || {};
   const bulk = record.bulk_deals || {};
+  const scanner = record.scanner || {};
+  const backtest = record.backtest || {};
   const decision = signal.decision || "NO DATA";
 
   text("decision", decision);
@@ -57,11 +59,56 @@ function renderLatest(record) {
   text("bulkSell", number(bulk.sell_quantity, 0));
   text("bulkExplanation", `${bulk.explanation || "No bulk-deal data"}${bulk.latest_date ? ` · Published ${bulk.latest_date}` : ""}`);
   renderBulkDeals(bulk.deals || []);
+  renderScanner(scanner);
+  renderBacktest(backtest);
 
   text("reason", signal.reason);
   text("riskReason", `${risk.approved ? "Approved" : "Blocked"}: ${risk.reason || "No reason"}`);
   text("newsRisk", `${news.risk_level || "Unknown"} · score ${number(news.score, 0)} · ${news.explanation || ""}`);
   text("execution", record.executed ? "Paper order recorded" : "No order executed");
+}
+
+function renderBacktest(backtest) {
+  text("backtestStatus", String(backtest.status || "unknown").toUpperCase());
+  text("backtestTrades", number(backtest.trades, 0));
+  text("backtestWinRate", backtest.status === "complete" ? `${number(backtest.win_rate_pct)}%` : "—");
+  text("backtestReturn", backtest.status === "complete" ? `${number(backtest.net_return_pct)}%` : "—");
+  text("backtestDrawdown", backtest.status === "complete" ? `${number(backtest.max_drawdown_pct)}%` : "—");
+  text(
+    "backtestExplanation",
+    backtest.status === "complete"
+      ? `${backtest.method}. Costs ${number(backtest.round_trip_cost_bps)} bps; ${backtest.news_assumption}. Historical performance does not predict future results.`
+      : backtest.status === "insufficient_data"
+        ? `Insufficient candles: ${number(backtest.candles, 0)} available, ${number(backtest.minimum_candles, 0)} required.`
+        : "Backtesting was disabled for this decision.",
+  );
+}
+
+function renderScanner(scanner) {
+  text("scannerStatus", scanner.enabled ? "ACTIVE" : "DISABLED");
+  text(
+    "scannerExplanation",
+    scanner.enabled
+      ? `${scanner.selection_reason || "Ranked configured candidates"}. Selected ${scanner.selected_symbol || "none"}; evaluated ${number(scanner.evaluated, 0)}.`
+      : "Scanner was disabled for this decision.",
+  );
+  const ranking = Array.isArray(scanner.ranking) ? scanner.ranking : [];
+  const rows = ranking.map((candidate) => {
+    const tr = document.createElement("tr");
+    tr.append(
+      cell(number(candidate.rank, 0)),
+      cell(candidate.symbol),
+      cell(candidate.derivative_type || candidate.instrument_type),
+      cell(candidate.expiry),
+      cell(number(candidate.lot_size, 0)),
+      cell(candidate.decision),
+      cell(`${number(candidate.confidence, 0)}%`),
+      cell(number(candidate.average_volume, 0)),
+      cell(candidate.eligible ? "Eligible" : candidate.reason, candidate.eligible ? "positive" : "negative"),
+    );
+    return tr;
+  });
+  replaceRows("scannerRows", rows.length ? rows : [emptyRow(9, "No scanner ranking recorded")]);
 }
 
 function renderIndicators(indicators) {

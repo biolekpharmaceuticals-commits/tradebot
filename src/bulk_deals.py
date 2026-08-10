@@ -66,12 +66,23 @@ class NSEBulkDealProvider:
         self.timeout_seconds = timeout_seconds
         self.fetcher = fetcher or self._fetch_nse
         self.today = today or self._today_kolkata
+        self._snapshot_loaded = False
+        self._snapshot: object = None
+        self._snapshot_failed = False
 
     def get_signal(self, symbol: str) -> BulkDealSignal:
         normalized_symbol = _normalize_symbol(symbol)
+        if not self._snapshot_loaded:
+            try:
+                self._snapshot = self.fetcher()
+            except Exception:
+                self._snapshot_failed = True
+            self._snapshot_loaded = True
+
+        if self._snapshot_failed:
+            return _neutral_signal("unavailable", "NSE bulk-deal data is currently unavailable")
         try:
-            response = self.fetcher()
-            return self._parse_response(response, normalized_symbol)
+            return self._parse_response(self._snapshot, normalized_symbol)
         except Exception:
             return _neutral_signal("unavailable", "NSE bulk-deal data is currently unavailable")
 
