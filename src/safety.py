@@ -44,11 +44,11 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
     configured_mode = require_string(trading, "mode").lower()
     trading_mode = os.getenv("TRADING_MODE", configured_mode).strip().lower()
     if trading_mode != "paper":
-        raise SafetyConfigError("Release 2 supports TRADING_MODE=paper only")
+        raise SafetyConfigError("Release 3 supports TRADING_MODE=paper only")
 
     live_trading_enabled = env_bool("LIVE_TRADING_ENABLED", False)
     if live_trading_enabled:
-        raise SafetyConfigError("LIVE_TRADING_ENABLED cannot be true in Release 2")
+        raise SafetyConfigError("LIVE_TRADING_ENABLED cannot be true in Release 3")
 
     kill_switch_active = env_bool("KILL_SWITCH_ACTIVE", True)
 
@@ -76,8 +76,13 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
             raise SafetyConfigError(f"risk.{key} is required")
 
     from .market_data import validate_market_data_config
+    from .bulk_deals import validate_bulk_deal_config
 
     validate_market_data_config(market_data)
+    try:
+        validate_bulk_deal_config(raw.get("bulk_deals"))
+    except ValueError as exc:
+        raise SafetyConfigError(str(exc)) from None
 
     return SafetySettings(
         trading_mode=trading_mode,

@@ -6,6 +6,7 @@ from dataclasses import asdict
 import pandas as pd
 
 from .broker import PaperBroker
+from .bulk_deals import build_bulk_deal_provider
 from .config import AppConfig
 from .logger import DecisionLogger
 from .market_data import build_market_data_provider
@@ -20,6 +21,7 @@ class TradingAgent:
         trading = config.section("trading")
         self.broker = PaperBroker()
         self.market_data = build_market_data_provider(config.section("market_data"))
+        self.bulk_deals = build_bulk_deal_provider(config.raw.get("bulk_deals", {}))
         self.strategy = TrendStrategy(config.section("strategy"))
         self.news_analyzer = NewsAnalyzer()
         self.risk = RiskManager(config.section("risk"))
@@ -44,7 +46,8 @@ class TradingAgent:
         trading = self.config.section("trading")
         headlines = self.config.section("news").get("manual_headlines", [])
         news = self.news_analyzer.analyze(list(headlines))
-        signal = self.strategy.evaluate(candles, news)
+        bulk_deals = self.bulk_deals.get_signal(str(symbol_config.get("symbol", "")))
+        signal = self.strategy.evaluate(candles, news, bulk_deals)
 
         threshold = int(trading.get("confidence_threshold", 75))
         requested_quantity = int(symbol_config.get("quantity", 1))
@@ -61,11 +64,20 @@ class TradingAgent:
         if should_execute:
             order = self.broker.place_order(symbol_config, signal, risk_decision.quantity)
 
+        signal_payload = asdict(signal)
+        strategy_payload = signal_payload.get("strategy")
+        if isinstance(strategy_payload, dict):
+            strategy_payload["timeframe"] = symbol_config.get("timeframe")
+            strategy_payload["candle_count"] = len(candles) if candles is not None else 0
+            if candles is not None and "timestamp" in candles.columns and not candles.empty:
+                strategy_payload["latest_candle"] = str(candles.iloc[-1]["timestamp"])
+
         payload = {
             "symbol": symbol_config.get("symbol"),
             "mode": self.config.safety.trading_mode,
-            "signal": asdict(signal),
+            "signal": signal_payload,
             "news": asdict(news),
+            "bulk_deals": asdict(bulk_deals),
             "risk": asdict(risk_decision),
             "manual_approval_required": trading.get("require_manual_approval", True),
             "confidence_threshold": threshold,

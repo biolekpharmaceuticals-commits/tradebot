@@ -38,5 +38,13 @@ market_data:
   provider: demo
   lookback_days: 5
 
+bulk_deals:
+  enabled: false
+  provider: nse
+  max_age_days: 7
+  max_confidence_points: 10
+  min_imbalance_ratio: 0.2
+  timeout_seconds: 8
+
 logging:
   decision_log: logs/decisions.jsonl

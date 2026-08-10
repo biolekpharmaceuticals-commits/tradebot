@@ -1,6 +1,6 @@
-# Angel One Auto Trading Agent MVP
+# Angel One Paper Trading Agent
 
-This is a cautious starter framework for an Angel One SmartAPI trading agent. Release 2 is paper-trading-only and cannot submit live Angel One orders.
+This is a cautious starter framework for an Angel One SmartAPI trading agent. Release 3 remains paper-trading-only and cannot submit live Angel One orders.
 
 ## What It Does
 
@@ -12,13 +12,16 @@ This is a cautious starter framework for an Angel One SmartAPI trading agent. Re
 - Provides read-only Angel One historical candle retrieval when explicitly configured
 - Provides a broker adapter interface and an Angel One adapter stub that blocks every order submission in Release 2
 - Logs every decision as JSON lines
+- Records the indicator values and point-by-point strategy explanation for each decision
+- Adds optional, read-only NSE bulk-deal context with a maximum 10-point confidence contribution
+- Serves a private read-only dashboard through a localhost-only FastAPI process and authenticated HTTPS proxy
 
 ## Important Safety Notes
 
 - This is not financial advice.
 - Use paper trading first.
-- Release 2 rejects live trading and keeps `TRADING_MODE=paper` by default.
-- `LIVE_TRADING_ENABLED` defaults to `false`; setting it to `true` fails closed in Release 2.
+- Release 3 rejects live trading and keeps `TRADING_MODE=paper` by default.
+- `LIVE_TRADING_ENABLED` defaults to `false`; setting it to `true` fails closed in Release 3.
 - `KILL_SWITCH_ACTIVE` defaults to `true` and blocks all order execution while active.
 - High-impact news protection is mandatory in Release 2.
 - Credentials must come from environment variables or a secret manager, not tracked config files.
@@ -49,6 +52,57 @@ $env:ANGEL_ONE_TOTP_SECRET = "<from secret manager>"
 
 The Angel One integration only authenticates and calls historical candle data. This release cannot submit, modify, cancel, or otherwise place live orders.
 
+## Release 3 Strategy Explanation
+
+Every new decision includes a structured `signal.strategy` object with:
+
+- Strategy name, version, timeframe, parameters, and candle count
+- EMA fast, EMA slow, EMA trend, VWAP, RSI, MACD, MACD signal, ATR, and close values
+- A signed point contribution for EMA alignment, VWAP, RSI, MACD, news, and bulk deals
+- Bullish points, bearish points, and the raw scoring edge
+
+The strategy remains a transparent deterministic rules engine. It is not a machine-learning model.
+
+## Release 3 NSE Bulk Deals
+
+Bulk-deal analysis is disabled by default. To enable the read-only NSE adapter, use this non-secret config:
+
+```yaml
+bulk_deals:
+  enabled: true
+  provider: nse
+  max_age_days: 7
+  max_confidence_points: 10
+  min_imbalance_ratio: 0.2
+  timeout_seconds: 8
+```
+
+The adapter only performs HTTP GET requests to NSE's public large-deal publication. Matching uses the cash-equity symbol, so `SBIN-EQ` maps to `SBIN`. Stale, missing, or unavailable data contributes zero points. Bulk-deal context cannot bypass the confidence, risk, news, manual-approval, kill-switch, or paper-only controls.
+
+Official source: <https://www.nseindia.com/market-data/large-deals>
+
+## Release 3 Private Dashboard
+
+Run locally for development:
+
+```powershell
+python run_dashboard.py --host 127.0.0.1 --port 8000 --decision-log logs/decisions.jsonl
+```
+
+The dashboard exposes only GET routes:
+
+- `/` — browser dashboard
+- `/api/health` — paper-mode safety state
+- `/api/latest` — latest sanitized decision
+- `/api/decisions?limit=50` — sanitized history
+
+The server refuses `0.0.0.0` and other public bind addresses. In production, keep it on `127.0.0.1:8000` and publish it only through Caddy HTTPS with `basic_auth`. The tracked templates are:
+
+- `deploy/tradebot-dashboard.service`
+- `deploy/Caddyfile.example`
+
+Generate the Caddy password hash interactively with `caddy hash-password`; never commit the password or resulting production configuration. The SmartAPI callback path remains outside dashboard authentication, while all dashboard routes require authentication.
+
 ## Run Paper Trading Demo
 
 ```powershell
@@ -68,7 +122,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-## Release 2 Guard
+## Release 3 Guard
 
 Order execution only reaches the paper broker when all of these are true:
 

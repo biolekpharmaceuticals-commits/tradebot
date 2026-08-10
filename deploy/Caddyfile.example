@@ -1,0 +1,12 @@
+tradebot.tradeinpro.in {
+    handle /smartapi/callback {
+        respond "SmartAPI callback endpoint is active" 200
+    }
+
+    handle {
+        basic_auth {
+            dashboard-user REPLACE_WITH_CADDY_PASSWORD_HASH
+        }
+        reverse_proxy 127.0.0.1:8000
+    }
+}

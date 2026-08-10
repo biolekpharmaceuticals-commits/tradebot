@@ -1,0 +1,23 @@
+[Unit]
+Description=Tradebot read-only paper dashboard
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=tradebot
+Group=tradebot
+WorkingDirectory=/opt/tradebot
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TRADEBOT_DECISION_LOG=/opt/tradebot/logs/decisions.jsonl
+ExecStart=/opt/tradebot/venv/bin/python /opt/tradebot/app/run_dashboard.py --host 127.0.0.1 --port 8000 --decision-log /opt/tradebot/logs/decisions.jsonl
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

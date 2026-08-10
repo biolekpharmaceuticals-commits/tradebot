@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>TradeInPro · Paper Strategy Dashboard</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">TRADEINPRO</p>
+        <h1>Strategy Control Room</h1>
+      </div>
+      <div class="status-stack">
+        <span id="modeBadge" class="badge safe">PAPER MODE</span>
+        <span id="updatedAt" class="updated">Waiting for a signal…</span>
+      </div>
+    </header>
+
+    <main>
+      <section id="safetyBanner" class="safety-banner">
+        <strong>Safety gates active.</strong>
+        <span id="safetyText">Loading execution status…</span>
+      </section>
+
+      <section class="metrics" aria-label="Latest signal">
+        <article class="metric hero-metric">
+          <span>Decision</span>
+          <strong id="decision">—</strong>
+          <small id="symbol">No data</small>
+        </article>
+        <article class="metric">
+          <span>Confidence</span>
+          <strong id="confidence">—</strong>
+          <div class="meter"><i id="confidenceBar"></i></div>
+        </article>
+        <article class="metric">
+          <span>Entry</span>
+          <strong id="entry">—</strong>
+          <small id="marketBias">—</small>
+        </article>
+        <article class="metric">
+          <span>Stop / Target</span>
+          <strong id="stopTarget">—</strong>
+          <small id="rewardRisk">—</small>
+        </article>
+      </section>
+
+      <section class="grid two-column">
+        <article class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">TRANSPARENT LOGIC</p>
+              <h2>Strategy explanation</h2>
+            </div>
+            <span id="strategyVersion" class="badge">—</span>
+          </div>
+          <p id="strategyName" class="subtle">No strategy record available.</p>
+          <div id="indicatorGrid" class="indicator-grid"></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Factor</th><th>Direction</th><th>Points</th><th>Explanation</th></tr></thead>
+              <tbody id="factorRows"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">OFFICIAL NSE CONTEXT</p>
+              <h2>Bulk-deal intelligence</h2>
+            </div>
+            <span id="bulkStatus" class="badge">—</span>
+          </div>
+          <div class="bulk-summary">
+            <div><span>Bias</span><strong id="bulkDirection">—</strong></div>
+            <div><span>Score</span><strong id="bulkScore">0</strong></div>
+            <div><span>Buy quantity</span><strong id="bulkBuy">0</strong></div>
+            <div><span>Sell quantity</span><strong id="bulkSell">0</strong></div>
+          </div>
+          <p id="bulkExplanation" class="subtle">No bulk-deal record available.</p>
+          <div class="table-wrap compact">
+            <table>
+              <thead><tr><th>Date</th><th>Client</th><th>Side</th><th>Quantity</th><th>Price</th></tr></thead>
+              <tbody id="bulkRows"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="grid two-column">
+        <article class="panel">
+          <p class="eyebrow">DECISION BASIS</p>
+          <h2>Signal and risk</h2>
+          <dl class="details">
+            <div><dt>Strategy reason</dt><dd id="reason">—</dd></div>
+            <div><dt>Risk decision</dt><dd id="riskReason">—</dd></div>
+            <div><dt>News risk</dt><dd id="newsRisk">—</dd></div>
+            <div><dt>Execution</dt><dd id="execution">—</dd></div>
+          </dl>
+        </article>
+        <article class="panel">
+          <p class="eyebrow">RECENT ACTIVITY</p>
+          <h2>Signal history</h2>
+          <div class="table-wrap compact">
+            <table>
+              <thead><tr><th>Time</th><th>Symbol</th><th>Decision</th><th>Confidence</th><th>Executed</th></tr></thead>
+              <tbody id="historyRows"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <footer>
+      Paper-trading research dashboard · Not financial advice · Bulk-deal reports are delayed public context
+    </footer>
+    <script src="/assets/dashboard.js" defer></script>
+  </body>
+</html>
