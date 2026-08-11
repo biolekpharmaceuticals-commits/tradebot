@@ -73,6 +73,9 @@ news:
 market_data:
   provider: demo
   lookback_days: 5
+  request_interval_seconds: 1.2
+  max_retries: 2
+  retry_backoff_seconds: 3
 
 bulk_deals:
   enabled: false

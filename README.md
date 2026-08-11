@@ -135,6 +135,8 @@ derivatives:
 
 The nearest unexpired index future and nearest-expiry directional option are evaluated. Bullish underlying signals consider call buying; bearish signals consider put buying. Option selling is rejected by configuration validation. Lot size, expiry, strike, trading symbol, and token come from the current instrument master. F&O discovery and candle retrieval are read-only, and all resulting decisions still pass through the existing paper-only safety gates.
 
+Angel One candle requests are serialized with a configurable minimum interval and bounded retry backoff for `AB1021` rate limits. SmartAPI SDK logging is suppressed around authenticated calls because upstream error logging may include sensitive request headers. Application exceptions remain sanitized.
+
 ## Release 4 Walk-Forward Backtesting
 
 Backtesting can be enabled for the selected cash, index, futures, or long-option candidate:

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import traceback
+import logging
+import sys
+import types
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -359,6 +362,75 @@ def test_angel_market_data_successful_candle_conversion(monkeypatch):
     assert fake_client.candle_requests[0]["interval"] == "FIVE_MINUTE"
     assert fake_client.candle_requests[0]["fromdate"] == "2026-08-06 15:30"
     assert fake_client.candle_requests[0]["todate"] == "2026-08-08 15:30"
+
+
+def test_angel_market_data_retries_rate_limit_with_throttle(monkeypatch):
+    set_angel_env(monkeypatch)
+
+    class RateLimitedClient(FakeSmartClient):
+        def __init__(self):
+            super().__init__()
+            self.responses = [
+                {"status": False, "message": "Too many requests", "errorcode": "AB1021", "data": None},
+                self.candle_response,
+            ]
+
+        def getCandleData(self, params):
+            self.candle_requests.append(params)
+            return self.responses.pop(0)
+
+    sleeps = []
+    fake_client = RateLimitedClient()
+    provider = AngelOneMarketDataProvider(
+        client_factory=lambda api_key: fake_client,
+        clock=fixed_clock,
+        request_interval_seconds=1.2,
+        max_retries=2,
+        retry_backoff_seconds=3,
+        sleeper=sleeps.append,
+        monotonic=lambda: 100.0,
+    )
+
+    candles = provider.get_candles({"exchange": "NSE", "token": "3045", "timeframe": "FIVE_MINUTE"})
+
+    assert len(candles) == 1
+    assert len(fake_client.candle_requests) == 2
+    assert sleeps == [3, 1.2]
+
+
+def test_smartapi_sdk_error_logging_is_suppressed_and_level_restored(monkeypatch):
+    set_angel_env(monkeypatch)
+
+    class FakeLogger:
+        def __init__(self):
+            self.level = logging.INFO
+            self.messages = []
+
+        def setLevel(self, level):
+            self.level = level
+
+        def error(self, message):
+            if self.level <= logging.ERROR:
+                self.messages.append(message)
+
+    fake_logger = FakeLogger()
+    monkeypatch.setitem(sys.modules, "logzero", types.SimpleNamespace(logger=fake_logger))
+
+    class LoggingClient(FakeSmartClient):
+        def getCandleData(self, params):
+            fake_logger.error("SENTINEL_EXPOSED_API_KEY")
+            return {"status": False, "message": "Rejected", "data": None}
+
+    provider = AngelOneMarketDataProvider(
+        client_factory=lambda api_key: LoggingClient(),
+        clock=fixed_clock,
+    )
+
+    with pytest.raises(MarketDataError):
+        provider.get_candles({"exchange": "NSE", "token": "3045", "timeframe": "FIVE_MINUTE"})
+
+    assert fake_logger.messages == []
+    assert fake_logger.level == logging.INFO
 
 
 def test_angel_market_data_malformed_responses_fail_closed(monkeypatch):
