@@ -398,6 +398,62 @@ def test_angel_market_data_retries_rate_limit_with_throttle(monkeypatch):
     assert sleeps == [3, 1.2]
 
 
+def test_angel_market_data_retries_sdk_rate_limit_exception_without_leaking(monkeypatch):
+    set_angel_env(monkeypatch)
+
+    class ExceptionRateLimitedClient(FakeSmartClient):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def getCandleData(self, params):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("Access denied because of exceeding access rate")
+            return self.candle_response
+
+    sleeps = []
+    fake_client = ExceptionRateLimitedClient()
+    provider = AngelOneMarketDataProvider(
+        client_factory=lambda api_key: fake_client,
+        clock=fixed_clock,
+        request_interval_seconds=1.2,
+        max_retries=2,
+        retry_backoff_seconds=3,
+        sleeper=sleeps.append,
+        monotonic=lambda: 100.0,
+    )
+
+    candles = provider.get_candles({"exchange": "NFO", "token": "58072", "timeframe": "FIVE_MINUTE"})
+
+    assert len(candles) == 1
+    assert fake_client.calls == 2
+    assert sleeps == [3, 1.2]
+
+
+def test_angel_market_data_sdk_rate_limit_exception_exhaustion_is_sanitized(monkeypatch):
+    set_angel_env(monkeypatch)
+
+    class AlwaysRateLimitedClient(FakeSmartClient):
+        def getCandleData(self, params):
+            raise RuntimeError("Access denied because of exceeding access rate SENTINEL_SECRET")
+
+    provider = AngelOneMarketDataProvider(
+        client_factory=lambda api_key: AlwaysRateLimitedClient(),
+        clock=fixed_clock,
+        max_retries=0,
+    )
+
+    with pytest.raises(MarketDataError) as exc_info:
+        provider.get_candles({"exchange": "NFO", "token": "58072", "timeframe": "FIVE_MINUTE"})
+
+    assert_sanitized_traceback(
+        exc_info,
+        "Angel One market-data rate limit reached",
+        ("SENTINEL_SECRET", "exceeding access rate"),
+    )
+
+
 def test_smartapi_sdk_error_logging_is_suppressed_and_level_restored(monkeypatch):
     set_angel_env(monkeypatch)
 

@@ -74,7 +74,12 @@ class AngelOneMarketDataProvider:
                 self._respect_rate_limit()
                 with _suppress_smartapi_logging():
                     response = client.getCandleData(params)
-            except Exception:
+            except Exception as exc:
+                if _is_rate_limit_exception(exc):
+                    if attempt >= self.max_retries:
+                        raise MarketDataError("Angel One market-data rate limit reached") from None
+                    self.sleeper(self.retry_backoff_seconds * (attempt + 1))
+                    continue
                 raise MarketDataError("Angel One candle retrieval failed") from None
 
             if not _is_rate_limited(response):
@@ -91,7 +96,8 @@ class AngelOneMarketDataProvider:
 
         try:
             values = self._read_environment()
-            client = self.client_factory(values["ANGEL_ONE_API_KEY"])
+            with _suppress_smartapi_logging():
+                client = self.client_factory(values["ANGEL_ONE_API_KEY"])
             import pyotp
 
             totp_value = pyotp.TOTP(values["ANGEL_ONE_TOTP_SECRET"]).now()
@@ -239,6 +245,18 @@ def _is_rate_limited(response: object) -> bool:
     return response.get("errorcode") == "AB1021" or "too many requests" in str(
         response.get("message", "")
     ).lower()
+
+
+def _is_rate_limit_exception(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "ab1021",
+            "too many requests",
+            "access denied because of exceeding access rate",
+        )
+    )
 
 
 @contextmanager
