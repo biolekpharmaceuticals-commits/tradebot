@@ -20,6 +20,11 @@ class RiskManager:
         self.realized_pnl = 0.0
         self.consecutive_losses = 0
 
+    def update_state(self, *, trades_today: int, realized_pnl: float, consecutive_losses: int) -> None:
+        self.trades_today = max(0, int(trades_today))
+        self.realized_pnl = float(realized_pnl)
+        self.consecutive_losses = max(0, int(consecutive_losses))
+
     def evaluate(self, signal: TradeSignal, requested_quantity: int, news: NewsSignal) -> RiskDecision:
         capital = float(self.config.get("capital", 100000))
         max_daily_loss = capital * float(self.config.get("max_daily_loss_pct", 2.0)) / 100

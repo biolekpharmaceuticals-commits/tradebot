@@ -53,6 +53,9 @@ h2 { margin-bottom: 18px; font-size: 1.15rem; }
 .grid { display: grid; gap: 14px; margin-bottom: 14px; }
 .scanner-panel { margin-bottom: 14px; }
 .backtest-panel { margin-bottom: 14px; }
+.paper-panel { margin-bottom: 14px; }
+.paper-panel h3 { margin: 22px 0 8px; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; }
+.paper-summary { grid-template-columns: repeat(4, 1fr); }
 .two-column { grid-template-columns: minmax(0, 1.35fr) minmax(360px, .85fr); }
 .panel { min-width: 0; padding: 22px; }
 .panel-heading { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
@@ -91,4 +94,5 @@ footer { padding: 24px 0 40px; color: var(--muted); font-size: .76rem; text-alig
   .indicator-grid { grid-template-columns: repeat(3, 1fr); }
   .safety-banner { flex-direction: column; }
   .details div { grid-template-columns: 1fr; gap: 5px; }
+  .paper-summary { grid-template-columns: repeat(2, 1fr); }
 }

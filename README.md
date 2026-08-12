@@ -1,6 +1,6 @@
 # Angel One Paper Trading Agent
 
-This is a cautious starter framework for an Angel One SmartAPI trading agent. Release 4 remains paper-trading-only and cannot submit live Angel One orders.
+This is a cautious Angel One SmartAPI trading agent. Release 5 can automatically fill and manage simulated paper orders, but it cannot submit live Angel One orders.
 
 ## What It Does
 
@@ -16,15 +16,17 @@ This is a cautious starter framework for an Angel One SmartAPI trading agent. Re
 - Adds optional, read-only NSE bulk-deal context with a maximum 10-point confidence contribution
 - Serves a private read-only dashboard through a localhost-only FastAPI process and authenticated HTTPS proxy
 - Optionally ranks a controlled universe by signal confidence and recent liquidity, then sends only the top candidate through the paper-trading safety gates
+- Persists simulated paper entries and exits with duplicate protection, fees, slippage, stop-loss, target, and time-based exits
 
 ## Important Safety Notes
 
 - This is not financial advice.
 - Use paper trading first.
-- Release 3 rejects live trading and keeps `TRADING_MODE=paper` by default.
-- `LIVE_TRADING_ENABLED` defaults to `false`; setting it to `true` fails closed in Release 3.
+- Release 5 rejects live trading and keeps `TRADING_MODE=paper`.
+- `LIVE_TRADING_ENABLED` defaults to `false`; setting it to `true` always fails closed.
 - `KILL_SWITCH_ACTIVE` defaults to `true` and blocks all order execution while active.
-- High-impact news protection is mandatory in Release 2.
+- `AUTO_PAPER_TRADING_ENABLED` defaults to `false`, providing a separate environment-level opt-in.
+- High-impact news protection remains mandatory.
 - Credentials must come from environment variables or a secret manager, not tracked config files.
 - Always use stop-loss, max daily loss, and the kill switch.
 
@@ -127,13 +129,14 @@ derivatives:
   instruments: [futures, options]
   option_buying_only: true
   option_strikes: 1
+  minimum_expiry_days: 1
   max_expiry_days: 45
   max_contracts: 6
   timeframe: FIVE_MINUTE
   timeout_seconds: 10
 ```
 
-The nearest unexpired index future and nearest-expiry directional option are evaluated. Bullish underlying signals consider call buying; bearish signals consider put buying. Option selling is rejected by configuration validation. Lot size, expiry, strike, trading symbol, and token come from the current instrument master. F&O discovery and candle retrieval are read-only, and all resulting decisions still pass through the existing paper-only safety gates.
+The nearest permitted index future and nearest-expiry directional option are evaluated. The default one-day minimum excludes same-day-expiry contracts. Bullish underlying signals consider call buying; bearish signals consider put buying. Option selling is rejected by configuration validation. Lot size, expiry, strike, trading symbol, and token come from the current instrument master. F&O discovery and candle retrieval are read-only, and all resulting decisions still pass through the existing paper-only safety gates.
 
 Angel One candle requests are serialized with a configurable minimum interval and bounded retry backoff for `AB1021` rate limits. SmartAPI SDK logging is suppressed around authenticated calls because upstream error logging may include sensitive request headers. Application exceptions remain sanitized.
 
@@ -152,6 +155,31 @@ backtesting:
 The engine evaluates each signal using only candles available at that point, prevents overlapping simulated trades, deducts configured round-trip costs, and uses a conservative stop-first result when a candle touches both stop and target. Current news and bulk-deal information are forced to neutral during historical evaluation to avoid look-ahead contamination. The dashboard reports trade count, win rate, net compounded return, maximum drawdown, average trade, and profit factor.
 
 Backtest results are research estimates, not guarantees. They do not model every tax, brokerage charge, spread, liquidity constraint, gap, rejection, or execution delay. Expired F&O history may also be limited by the broker's available historical data.
+
+## Release 5 Automatic Paper Execution
+
+Automatic paper execution is disabled by default and requires all safety gates to agree. Configure the simulator without credentials:
+
+```yaml
+paper_execution:
+  enabled: true
+  initial_balance: 100000
+  max_open_positions: 2
+  slippage_bps: 5
+  fee_bps: 10
+  max_holding_minutes: 120
+  market_hours_only: true
+  max_candle_age_minutes: 10
+  state_file: /opt/tradebot/logs/paper_portfolio.json
+```
+
+Then explicitly set `AUTO_PAPER_TRADING_ENABLED=true`, `KILL_SWITCH_ACTIVE=false`, and `trading.require_manual_approval=false`. `LIVE_TRADING_ENABLED` must remain `false`.
+
+An entry is filled only when the scanner candidate is eligible, confidence meets the threshold, risk approves a full F&O lot, high-impact news is absent, daily limits allow another trade, automatic paper execution is enabled, and the kill switch is inactive. Long options can only be bought; option selling is rejected again inside the paper broker.
+
+The state file is written atomically with mode `0600`. It records open positions, closed trades, simulated fees, slippage, and `PAPER-` order identifiers. Repeated scans of the same candle cannot create duplicate orders, and a second position in the same contract is blocked. Existing positions are checked against later candles for stop-loss, target, gap, and configured time exits before a new scan.
+
+This is a simulation. Paper fills do not guarantee comparable live-market fills, liquidity, spreads, or costs.
 
 ## Run Paper Trading Demo
 
@@ -172,15 +200,18 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-## Release 3 Guard
+## Release 5 Execution Guard
 
 Order execution only reaches the paper broker when all of these are true:
 
 - `TRADING_MODE` resolves to `paper`
 - `LIVE_TRADING_ENABLED` is `false`
+- `paper_execution.enabled` is `true`
+- `AUTO_PAPER_TRADING_ENABLED` is `true`
 - `KILL_SWITCH_ACTIVE` is `false`
 - `trading.require_manual_approval` is `false`
 - Risk manager approves the trade
 - Strategy confidence is at or above the configured threshold
+- The candidate is eligible and a full F&O lot fits within risk limits
 
-The default config is deliberately conservative: paper mode, manual approval required, mandatory high-impact news protection, and the kill switch active.
+The default config is deliberately conservative: paper mode, automatic paper execution disabled, manual approval required, mandatory high-impact news protection, and the kill switch active. Source scans and tests ensure no Angel One order, modify, cancel, or GTT endpoint is present.

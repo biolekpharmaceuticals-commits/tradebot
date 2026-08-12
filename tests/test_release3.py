@@ -177,6 +177,8 @@ def test_dashboard_is_get_only_and_returns_paper_safety_state(tmp_path):
         "mode": "paper",
         "live_trading_enabled": False,
         "kill_switch_active": True,
+        "auto_paper_trading_enabled": False,
+        "paper_execution_configured": False,
     }
     assert client.post("/api/latest").status_code == 405
     assert client.post("/api/decisions").status_code == 405

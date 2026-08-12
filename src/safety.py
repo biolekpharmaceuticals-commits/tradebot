@@ -18,6 +18,7 @@ class SafetySettings:
     trading_mode: str
     live_trading_enabled: bool
     kill_switch_active: bool
+    auto_paper_trading_enabled: bool
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -44,13 +45,14 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
     configured_mode = require_string(trading, "mode").lower()
     trading_mode = os.getenv("TRADING_MODE", configured_mode).strip().lower()
     if trading_mode != "paper":
-        raise SafetyConfigError("Release 4 supports TRADING_MODE=paper only")
+        raise SafetyConfigError("Release 5 supports TRADING_MODE=paper only")
 
     live_trading_enabled = env_bool("LIVE_TRADING_ENABLED", False)
     if live_trading_enabled:
-        raise SafetyConfigError("LIVE_TRADING_ENABLED cannot be true in Release 4")
+        raise SafetyConfigError("LIVE_TRADING_ENABLED cannot be true in Release 5")
 
     kill_switch_active = env_bool("KILL_SWITCH_ACTIVE", True)
+    auto_paper_trading_enabled = env_bool("AUTO_PAPER_TRADING_ENABLED", False)
 
     require_bool(trading, "require_manual_approval")
     threshold = require_int(trading, "confidence_threshold")
@@ -101,7 +103,7 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
         raise SafetyConfigError("scanner.min_average_volume must be a non-negative integer")
 
     if require_bool(risk, "avoid_high_impact_news") is not True:
-        raise SafetyConfigError("risk.avoid_high_impact_news must remain true in Release 4")
+        raise SafetyConfigError("risk.avoid_high_impact_news must remain true in Release 5")
 
     for key in (
         "capital",
@@ -118,12 +120,14 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
     from .bulk_deals import validate_bulk_deal_config
     from .derivatives import validate_derivative_config
     from .backtest import validate_backtest_config
+    from .broker import validate_paper_execution_config
 
     validate_market_data_config(market_data)
     try:
         validate_bulk_deal_config(raw.get("bulk_deals"))
         validate_derivative_config(raw.get("derivatives"))
         validate_backtest_config(raw.get("backtesting"))
+        validate_paper_execution_config(raw.get("paper_execution"))
     except ValueError as exc:
         raise SafetyConfigError(str(exc)) from None
 
@@ -131,6 +135,7 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
         trading_mode=trading_mode,
         live_trading_enabled=live_trading_enabled,
         kill_switch_active=kill_switch_active,
+        auto_paper_trading_enabled=auto_paper_trading_enabled,
     )
 
 

@@ -48,6 +48,37 @@
         </article>
       </section>
 
+      <section class="panel paper-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">SIMULATED EXECUTION</p>
+            <h2>Paper portfolio</h2>
+          </div>
+          <span id="paperStatus" class="badge">—</span>
+        </div>
+        <div class="bulk-summary paper-summary">
+          <div><span>Paper balance</span><strong id="paperBalance">—</strong></div>
+          <div><span>Realized P&amp;L</span><strong id="paperPnl">—</strong></div>
+          <div><span>Open positions</span><strong id="paperOpenCount">0</strong></div>
+          <div><span>Closed trades</span><strong id="paperClosedCount">0</strong></div>
+        </div>
+        <p id="paperExplanation" class="subtle">Paper execution is not configured.</p>
+        <h3>Open positions</h3>
+        <div class="table-wrap compact">
+          <table>
+            <thead><tr><th>Symbol</th><th>Side</th><th>Quantity</th><th>Entry</th><th>Stop</th><th>Target</th><th>Opened</th></tr></thead>
+            <tbody id="paperPositionRows"></tbody>
+          </table>
+        </div>
+        <h3>Recent paper orders</h3>
+        <div class="table-wrap compact">
+          <table>
+            <thead><tr><th>Time</th><th>Order</th><th>Kind</th><th>Symbol</th><th>Side</th><th>Quantity</th><th>Fill</th><th>Status</th></tr></thead>
+            <tbody id="paperOrderRows"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="panel scanner-panel">
         <div class="panel-heading">
           <div>

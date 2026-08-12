@@ -139,12 +139,14 @@ def test_default_paper_mode_and_safety_flags(tmp_path, monkeypatch):
     monkeypatch.delenv("TRADING_MODE", raising=False)
     monkeypatch.delenv("LIVE_TRADING_ENABLED", raising=False)
     monkeypatch.delenv("KILL_SWITCH_ACTIVE", raising=False)
+    monkeypatch.delenv("AUTO_PAPER_TRADING_ENABLED", raising=False)
 
     config = load_test_config(tmp_path)
 
     assert config.safety.trading_mode == "paper"
     assert config.safety.live_trading_enabled is False
     assert config.safety.kill_switch_active is True
+    assert config.safety.auto_paper_trading_enabled is False
 
 
 def test_live_trading_enabled_true_fails_closed(tmp_path, monkeypatch):

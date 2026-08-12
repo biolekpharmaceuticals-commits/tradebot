@@ -26,6 +26,7 @@ function renderLatest(record) {
   const bulk = record.bulk_deals || {};
   const scanner = record.scanner || {};
   const backtest = record.backtest || {};
+  const portfolio = record.paper_portfolio || {};
   const decision = signal.decision || "NO DATA";
 
   text("decision", decision);
@@ -40,11 +41,11 @@ function renderLatest(record) {
 
   byId("decision").className = `decision-${decision.toLowerCase()}`;
   text("modeBadge", `${String(record.mode || "paper").toUpperCase()} MODE`);
-  const safe = record.live_trading_enabled === false && record.executed === false;
+  const safe = record.live_trading_enabled === false && String(record.mode || "paper") === "paper";
   byId("safetyBanner").className = `safety-banner ${safe ? "" : "warning"}`;
   text(
     "safetyText",
-    `Kill switch ${record.kill_switch_active ? "active" : "inactive"}; live trading ${record.live_trading_enabled ? "enabled" : "disabled"}; executed ${record.executed ? "yes" : "no"}.`,
+    `Kill switch ${record.kill_switch_active ? "active" : "inactive"}; live trading ${record.live_trading_enabled ? "enabled" : "disabled"}; automatic paper execution ${record.auto_paper_trading_enabled ? "enabled" : "disabled"}; paper order filled ${record.executed ? "yes" : "no"}.`,
   );
 
   text("strategyName", `${strategy.name || "Strategy not recorded"} · ${strategy.type || ""}`);
@@ -61,11 +62,57 @@ function renderLatest(record) {
   renderBulkDeals(bulk.deals || []);
   renderScanner(scanner);
   renderBacktest(backtest);
+  renderPaperPortfolio(record, portfolio);
 
   text("reason", signal.reason);
   text("riskReason", `${risk.approved ? "Approved" : "Blocked"}: ${risk.reason || "No reason"}`);
   text("newsRisk", `${news.risk_level || "Unknown"} · score ${number(news.score, 0)} · ${news.explanation || ""}`);
-  text("execution", record.executed ? "Paper order recorded" : "No order executed");
+  text(
+    "execution",
+    record.executed
+      ? `${record.order?.message || "Paper order filled"} · ${record.order?.order_id || ""}`
+      : (record.execution_blockers || []).join("; ") || record.order?.message || "No paper order executed",
+  );
+}
+
+function renderPaperPortfolio(record, portfolio) {
+  const automatic = record.paper_execution_configured && record.auto_paper_trading_enabled;
+  text("paperStatus", automatic ? (record.kill_switch_active ? "PAUSED" : "AUTOMATIC") : "DISABLED");
+  text("paperBalance", `₹${number(portfolio.paper_balance)}`);
+  text("paperPnl", `₹${number(portfolio.realized_pnl)}`);
+  text("paperOpenCount", number(portfolio.open_position_count, 0));
+  text("paperClosedCount", number(portfolio.closed_trade_count, 0));
+  text(
+    "paperExplanation",
+    automatic
+      ? `Paper fills use configured slippage and fees. ${record.kill_switch_active ? "New entries are paused by the kill switch." : "Eligible signals can be filled automatically."}`
+      : "Automatic paper execution requires both configuration and environment opt-in.",
+  );
+
+  const positions = Array.isArray(portfolio.open_positions) ? portfolio.open_positions : [];
+  const positionRows = positions.map((position) => {
+    const tr = document.createElement("tr");
+    tr.append(
+      cell(position.symbol), cell(position.side, position.side === "BUY" ? "positive" : "negative"),
+      cell(number(position.quantity, 0)), cell(number(position.entry_price)), cell(number(position.stop_loss)),
+      cell(number(position.target)), cell(position.opened_at ? new Date(position.opened_at).toLocaleString("en-IN") : "—"),
+    );
+    return tr;
+  });
+  replaceRows("paperPositionRows", positionRows.length ? positionRows : [emptyRow(7, "No open paper positions")]);
+
+  const orders = Array.isArray(portfolio.recent_orders) ? portfolio.recent_orders : [];
+  const orderRows = orders.map((order) => {
+    const tr = document.createElement("tr");
+    tr.append(
+      cell(order.timestamp ? new Date(order.timestamp).toLocaleString("en-IN") : "—"),
+      cell(order.order_id), cell(order.kind), cell(order.symbol),
+      cell(order.side, order.side === "BUY" ? "positive" : "negative"), cell(number(order.quantity, 0)),
+      cell(number(order.fill_price)), cell(order.status),
+    );
+    return tr;
+  });
+  replaceRows("paperOrderRows", orderRows.length ? orderRows : [emptyRow(8, "No paper orders recorded")]);
 }
 
 function renderBacktest(backtest) {

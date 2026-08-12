@@ -34,6 +34,7 @@ derivatives:
     - options
   option_buying_only: true
   option_strikes: 1
+  minimum_expiry_days: 1
   max_expiry_days: 45
   max_contracts: 6
   timeframe: FIVE_MINUTE
@@ -44,6 +45,17 @@ backtesting:
   minimum_candles: 80
   holding_bars: 12
   round_trip_cost_bps: 10
+
+paper_execution:
+  enabled: false
+  initial_balance: 100000
+  max_open_positions: 2
+  slippage_bps: 5
+  fee_bps: 10
+  max_holding_minutes: 120
+  market_hours_only: true
+  max_candle_age_minutes: 10
+  state_file: logs/paper_portfolio.json
 
 risk:
   capital: 100000

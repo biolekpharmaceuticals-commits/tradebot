@@ -45,6 +45,7 @@ class AngelOneDerivativeDiscovery:
         timeout_seconds: float,
         fetcher: Callable[[], object] | None = None,
         today: Callable[[], date] | None = None,
+        minimum_expiry_days: int = 0,
     ) -> None:
         self.instruments = instruments
         self.option_strikes = option_strikes
@@ -52,6 +53,7 @@ class AngelOneDerivativeDiscovery:
         self.max_contracts = max_contracts
         self.timeframe = timeframe
         self.timeout_seconds = timeout_seconds
+        self.minimum_expiry_days = minimum_expiry_days
         self.fetcher = fetcher or self._fetch_master
         self.today = today or (lambda: datetime.now(ZoneInfo("Asia/Kolkata")).date())
         self._master: list[dict] | None = None
@@ -75,7 +77,7 @@ class AngelOneDerivativeDiscovery:
             if expiry is None:
                 continue
             days_to_expiry = (expiry - today).days
-            if days_to_expiry < 0 or days_to_expiry > self.max_expiry_days:
+            if days_to_expiry < self.minimum_expiry_days or days_to_expiry > self.max_expiry_days:
                 continue
             matching.append((expiry, row))
 
@@ -169,6 +171,7 @@ def build_derivative_discovery(config: object):
         max_contracts=int(config.get("max_contracts", 6)),
         timeframe=str(config.get("timeframe", "FIVE_MINUTE")),
         timeout_seconds=float(config.get("timeout_seconds", 10)),
+        minimum_expiry_days=int(config.get("minimum_expiry_days", 1)),
     )
 
 
@@ -187,6 +190,9 @@ def validate_derivative_config(config: object) -> None:
         raise ValueError("derivatives.option_buying_only must remain true")
     _bounded_int(config, "option_strikes", 1, 3, 1)
     _bounded_int(config, "max_expiry_days", 1, 60, 45)
+    _bounded_int(config, "minimum_expiry_days", 0, 10, 1)
+    if int(config.get("minimum_expiry_days", 1)) > int(config.get("max_expiry_days", 45)):
+        raise ValueError("derivatives.minimum_expiry_days cannot exceed max_expiry_days")
     _bounded_int(config, "max_contracts", 1, 10, 6)
     timeout = config.get("timeout_seconds", 10)
     if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 < timeout <= 30:

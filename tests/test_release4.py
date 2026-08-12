@@ -330,6 +330,28 @@ def test_bearish_index_signal_discovers_put_buying_not_option_selling():
     assert contracts[0]["symbol"].endswith("PE")
 
 
+def test_same_day_expiry_is_excluded_when_minimum_expiry_is_one_day():
+    master = [
+        instrument("NIFTY11AUG2624500CE", "301", "11AUG2026", "OPTIDX", strike="2450000"),
+        instrument("NIFTY18AUG2624500CE", "302", "18AUG2026", "OPTIDX", strike="2450000"),
+    ]
+    discovery = AngelOneDerivativeDiscovery(
+        instruments=["options"],
+        option_strikes=1,
+        max_expiry_days=45,
+        max_contracts=6,
+        timeframe="FIVE_MINUTE",
+        timeout_seconds=10,
+        fetcher=lambda: master,
+        today=lambda: pd.Timestamp("2026-08-11").date(),
+        minimum_expiry_days=1,
+    )
+
+    contracts = discovery.contracts_for("NIFTY 50", 24500, "BUY")
+
+    assert [item["symbol"] for item in contracts] == ["NIFTY18AUG2624500CE"]
+
+
 def test_derivative_discovery_error_is_sanitized():
     def fail():
         raise RuntimeError("SENTINEL_DERIVATIVE_SECRET")

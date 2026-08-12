@@ -89,6 +89,8 @@ def create_app(decision_log: Path | None = None) -> FastAPI:
             "mode": latest.get("mode", "paper"),
             "live_trading_enabled": latest.get("live_trading_enabled", False),
             "kill_switch_active": latest.get("kill_switch_active", True),
+            "auto_paper_trading_enabled": latest.get("auto_paper_trading_enabled", False),
+            "paper_execution_configured": latest.get("paper_execution_configured", False),
         }
 
     @app.get("/api/latest")
