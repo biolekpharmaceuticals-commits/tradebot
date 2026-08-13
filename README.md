@@ -1,6 +1,6 @@
 # Angel One Paper Trading Agent
 
-This is a cautious Angel One SmartAPI trading agent. Release 5.1 can automatically fill and manage simulated paper orders, but it cannot submit live Angel One orders.
+This is a cautious Angel One SmartAPI trading agent. Release 5.2 can automatically fill and manage simulated paper orders, but it cannot submit live Angel One orders.
 
 ## What It Does
 
@@ -22,7 +22,7 @@ This is a cautious Angel One SmartAPI trading agent. Release 5.1 can automatical
 
 - This is not financial advice.
 - Use paper trading first.
-- Release 5.1 rejects live trading and keeps `TRADING_MODE=paper`.
+- Release 5.2 rejects live trading and keeps `TRADING_MODE=paper`.
 - `LIVE_TRADING_ENABLED` defaults to `false`; setting it to `true` always fails closed.
 - `KILL_SWITCH_ACTIVE` defaults to `true` and blocks all order execution while active.
 - `AUTO_PAPER_TRADING_ENABLED` defaults to `false`, providing a separate environment-level opt-in.
@@ -188,6 +188,30 @@ The state file is written atomically with mode `0600`. It records open positions
 
 This is a simulation. Paper fills do not guarantee comparable live-market fills, liquidity, spreads, or costs.
 
+## Release 5.2 Live Index Price Action
+
+The private dashboard can display read-only one-minute candlesticks for both NIFTY 50 and NIFTY BANK. The server retrieves configured Angel One candles, caches them for 15 seconds, and publishes only sanitized OHLC data to the authenticated dashboard. No broker credential or session token is returned to the browser.
+
+```yaml
+market_dashboard:
+  enabled: true
+  refresh_seconds: 15
+  timeframe: ONE_MINUTE
+  candle_limit: 120
+  lookback_days: 2
+```
+
+The chart shows the current index level, day change, open, high, low, previous close, and simple price-action context. It is a near-live candle view refreshed every 15 seconds, not an exchange tick-by-tick feed. The dashboard remains loopback-only behind the authenticated HTTPS proxy and all dashboard APIs remain GET-only.
+
+The configured paper account and risk capital should use the same starting amount. For this deployment both are ₹3,00,000:
+
+```yaml
+paper_execution:
+  initial_balance: 300000
+risk:
+  capital: 300000
+```
+
 ## Run Paper Trading Demo
 
 ```powershell
@@ -207,7 +231,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-## Release 5.1 Execution Guard
+## Release 5.2 Execution Guard
 
 Order execution only reaches the paper broker when all of these are true:
 

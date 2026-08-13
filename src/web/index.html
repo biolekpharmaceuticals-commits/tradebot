@@ -25,6 +25,60 @@
         <span id="safetyText">Loading execution status…</span>
       </section>
 
+      <section class="panel market-panel" aria-labelledby="liveMarketTitle">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">NSE PRICE ACTION</p>
+            <h2 id="liveMarketTitle">Live index candles</h2>
+          </div>
+          <span id="marketFeedStatus" class="badge">CONNECTING</span>
+        </div>
+        <p id="marketFeedExplanation" class="subtle">Loading read-only Angel One market data…</p>
+        <div class="market-grid">
+          <article class="market-card">
+            <div class="market-card-heading">
+              <div>
+                <span class="market-symbol">NIFTY 50</span>
+                <strong id="nifty50Price" class="market-price">—</strong>
+              </div>
+              <div class="market-direction">
+                <strong id="nifty50Change">—</strong>
+                <span id="nifty50Action">Waiting for candles</span>
+              </div>
+            </div>
+            <canvas id="nifty50Chart" class="candle-chart" height="300" aria-label="NIFTY 50 one-minute candlestick chart"></canvas>
+            <div class="market-ohlc">
+              <div><span>Open</span><strong id="nifty50Open">—</strong></div>
+              <div><span>High</span><strong id="nifty50High">—</strong></div>
+              <div><span>Low</span><strong id="nifty50Low">—</strong></div>
+              <div><span>Prev. close</span><strong id="nifty50Previous">—</strong></div>
+            </div>
+            <small id="nifty50Time" class="market-time">No candle received</small>
+          </article>
+
+          <article class="market-card">
+            <div class="market-card-heading">
+              <div>
+                <span class="market-symbol">BANK NIFTY</span>
+                <strong id="bankNiftyPrice" class="market-price">—</strong>
+              </div>
+              <div class="market-direction">
+                <strong id="bankNiftyChange">—</strong>
+                <span id="bankNiftyAction">Waiting for candles</span>
+              </div>
+            </div>
+            <canvas id="bankNiftyChart" class="candle-chart" height="300" aria-label="BANK NIFTY one-minute candlestick chart"></canvas>
+            <div class="market-ohlc">
+              <div><span>Open</span><strong id="bankNiftyOpen">—</strong></div>
+              <div><span>High</span><strong id="bankNiftyHigh">—</strong></div>
+              <div><span>Low</span><strong id="bankNiftyLow">—</strong></div>
+              <div><span>Prev. close</span><strong id="bankNiftyPrevious">—</strong></div>
+            </div>
+            <small id="bankNiftyTime" class="market-time">No candle received</small>
+          </article>
+        </div>
+      </section>
+
       <section class="metrics" aria-label="Latest signal">
         <article class="metric hero-metric">
           <span>Decision</span>

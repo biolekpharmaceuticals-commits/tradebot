@@ -51,7 +51,7 @@ backtesting:
 
 paper_execution:
   enabled: false
-  initial_balance: 100000
+  initial_balance: 300000
   max_open_positions: 2
   slippage_bps: 5
   fee_bps: 10
@@ -61,7 +61,7 @@ paper_execution:
   state_file: logs/paper_portfolio.json
 
 risk:
-  capital: 100000
+  capital: 300000
   risk_per_trade_pct: 0.5
   max_daily_loss_pct: 2.0
   max_trades_per_day: 5
@@ -89,6 +89,13 @@ market_data:
   request_interval_seconds: 1.2
   max_retries: 2
   retry_backoff_seconds: 3
+
+market_dashboard:
+  enabled: false
+  refresh_seconds: 15
+  timeframe: ONE_MINUTE
+  candle_limit: 120
+  lookback_days: 2
 
 bulk_deals:
   enabled: false

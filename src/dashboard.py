@@ -10,6 +10,8 @@ from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .live_market import DashboardMarketFeed, DisabledDashboardMarketFeed
+
 
 SENSITIVE_KEYS = {
     "api_key",
@@ -47,10 +49,14 @@ class DecisionStore:
         return list(reversed(records))
 
 
-def create_app(decision_log: Path | None = None) -> FastAPI:
+def create_app(
+    decision_log: Path | None = None,
+    market_feed: DashboardMarketFeed | None = None,
+) -> FastAPI:
     web_dir = Path(__file__).resolve().parent / "web"
     log_path = decision_log or Path(os.getenv("TRADEBOT_DECISION_LOG", "logs/decisions.jsonl"))
     store = DecisionStore(log_path)
+    live_market = market_feed or DisabledDashboardMarketFeed()
     app = FastAPI(
         title="Tradebot Paper Dashboard",
         docs_url=None,
@@ -102,6 +108,10 @@ def create_app(decision_log: Path | None = None) -> FastAPI:
     def decisions(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, object]:
         records = store.read(limit)
         return {"count": len(records), "decisions": records}
+
+    @app.get("/api/market")
+    def market() -> dict[str, Any]:
+        return _sanitize(live_market.snapshot())
 
     return app
 
