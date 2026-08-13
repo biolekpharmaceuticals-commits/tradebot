@@ -33,6 +33,9 @@ derivatives:
     - futures
     - options
   option_buying_only: true
+  prefer_long_options: true
+  min_average_volume: 100
+  confidence_threshold: 55
   option_strikes: 1
   minimum_expiry_days: 1
   max_expiry_days: 45
@@ -78,9 +81,7 @@ news:
   enabled: true
   rss_feeds:
     - https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx
-  manual_headlines:
-    - "RBI keeps policy stance stable as inflation remains within target band"
-    - "Crude oil prices remain volatile amid geopolitical tensions"
+  manual_headlines: []
 
 market_data:
   provider: demo
