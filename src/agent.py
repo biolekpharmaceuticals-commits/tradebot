@@ -70,6 +70,8 @@ class TradingAgent:
         headlines = self.config.section("news").get("manual_headlines", [])
         news = self.news_analyzer.analyze(list(headlines))
         min_average_volume = int(scanner_config.get("min_average_volume", 100000))
+        derivative_config = self.config.raw.get("derivatives") or {}
+        min_derivative_average_volume = int(derivative_config.get("min_average_volume", 100))
         max_candidates = int(scanner_config.get("max_candidates", 20))
         candidates = []
         failures: list[dict[str, str]] = []
@@ -139,6 +141,8 @@ class TradingAgent:
                                 candles,
                                 signal,
                                 min_average_volume=min_average_volume,
+                                min_derivative_average_volume=min_derivative_average_volume,
+                                risk_config=self.config.section("risk"),
                             ),
                             bulk_deals,
                         )
@@ -162,9 +166,15 @@ class TradingAgent:
             "selected_symbol": selected.symbol_config.get("symbol"),
             "selected_eligible": selected.eligible,
             "selection_reason": (
-                "Highest confidence, then highest recent average turnover among eligible candidates"
+                "Long options first, then confidence and recent turnover among eligible candidates"
+                if self.derivatives.enabled
+                else "Highest confidence, then highest recent average turnover among eligible candidates"
             ),
             "minimum_average_volume": min_average_volume,
+            "minimum_derivative_average_volume": min_derivative_average_volume,
+            "derivative_confidence_threshold": int(
+                derivative_config.get("confidence_threshold", 55)
+            ),
             "underlying_signals": underlying_summaries,
             "ranking": [candidate.public_summary(index) for index, candidate in enumerate(ranked, 1)],
             "failures": failures,
@@ -211,13 +221,18 @@ class TradingAgent:
     ) -> None:
         trading = self.config.section("trading")
 
-        threshold = int(trading.get("confidence_threshold", 75))
+        is_derivative = str(symbol_config.get("instrument_type", "")).lower() == "derivative"
+        threshold = (
+            int((self.config.raw.get("derivatives") or {}).get("confidence_threshold", 55))
+            if is_derivative
+            else int(trading.get("confidence_threshold", 75))
+        )
         requested_quantity = int(symbol_config.get("quantity", 1))
         if isinstance(self.risk, RiskManager):
             self.risk.update_state(**self.paper_broker.risk_snapshot())
         risk_decision = self.risk.evaluate(signal, requested_quantity, news)
         if (
-            str(symbol_config.get("instrument_type", "")).lower() == "derivative"
+            is_derivative
             and risk_decision.approved
             and risk_decision.quantity != requested_quantity
         ):

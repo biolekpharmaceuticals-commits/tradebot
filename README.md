@@ -1,6 +1,6 @@
 # Angel One Paper Trading Agent
 
-This is a cautious Angel One SmartAPI trading agent. Release 5 can automatically fill and manage simulated paper orders, but it cannot submit live Angel One orders.
+This is a cautious Angel One SmartAPI trading agent. Release 5.1 can automatically fill and manage simulated paper orders, but it cannot submit live Angel One orders.
 
 ## What It Does
 
@@ -22,7 +22,7 @@ This is a cautious Angel One SmartAPI trading agent. Release 5 can automatically
 
 - This is not financial advice.
 - Use paper trading first.
-- Release 5 rejects live trading and keeps `TRADING_MODE=paper`.
+- Release 5.1 rejects live trading and keeps `TRADING_MODE=paper`.
 - `LIVE_TRADING_ENABLED` defaults to `false`; setting it to `true` always fails closed.
 - `KILL_SWITCH_ACTIVE` defaults to `true` and blocks all order execution while active.
 - `AUTO_PAPER_TRADING_ENABLED` defaults to `false`, providing a separate environment-level opt-in.
@@ -128,6 +128,9 @@ derivatives:
   enabled: true
   instruments: [futures, options]
   option_buying_only: true
+  prefer_long_options: true
+  min_average_volume: 100
+  confidence_threshold: 55
   option_strikes: 1
   minimum_expiry_days: 1
   max_expiry_days: 45
@@ -137,6 +140,8 @@ derivatives:
 ```
 
 The nearest permitted index future and nearest-expiry directional option are evaluated. The default one-day minimum excludes same-day-expiry contracts. Bullish underlying signals consider call buying; bearish signals consider put buying. Option selling is rejected by configuration validation. Lot size, expiry, strike, trading symbol, and token come from the current instrument master. F&O discovery and candle retrieval are read-only, and all resulting decisions still pass through the existing paper-only safety gates.
+
+Release 5.1 applies the derivative-specific volume threshold instead of the cash-equity threshold, rejects any full lot whose value or stop-loss risk exceeds the configured paper-account limits before ranking, and prioritizes eligible long options over futures. The bounded F&O confidence threshold defaults to `55`; the global cash-equity threshold remains unchanged. A signal below either applicable threshold is still blocked.
 
 Angel One candle requests are serialized with a configurable minimum interval and bounded retry backoff for `AB1021` rate limits. SmartAPI SDK logging is suppressed around authenticated calls because upstream error logging may include sensitive request headers. Application exceptions remain sanitized.
 
@@ -156,7 +161,7 @@ The engine evaluates each signal using only candles available at that point, pre
 
 Backtest results are research estimates, not guarantees. They do not model every tax, brokerage charge, spread, liquidity constraint, gap, rejection, or execution delay. Expired F&O history may also be limited by the broker's available historical data.
 
-## Release 5 Automatic Paper Execution
+## Release 5.1 Automatic Paper Execution
 
 Automatic paper execution is disabled by default and requires all safety gates to agree. Configure the simulator without credentials:
 
@@ -175,7 +180,9 @@ paper_execution:
 
 Then explicitly set `AUTO_PAPER_TRADING_ENABLED=true`, `KILL_SWITCH_ACTIVE=false`, and `trading.require_manual_approval=false`. `LIVE_TRADING_ENABLED` must remain `false`.
 
-An entry is filled only when the scanner candidate is eligible, confidence meets the threshold, risk approves a full F&O lot, high-impact news is absent, daily limits allow another trade, automatic paper execution is enabled, and the kill switch is inactive. Long options can only be bought; option selling is rejected again inside the paper broker.
+An entry is filled only when the scanner candidate is eligible, confidence meets the applicable cash or F&O threshold, risk approves a full F&O lot, high-impact news is absent, daily limits allow another trade, automatic paper execution is enabled, and the kill switch is inactive. Long options can only be bought; option selling is rejected again inside the paper broker.
+
+`manual_headlines` defaults to an empty list. Release 5.1 does not fetch `rss_feeds`; only manually supplied headlines are analyzed, so stale demonstration headlines must not be left in a scheduled paper deployment.
 
 The state file is written atomically with mode `0600`. It records open positions, closed trades, simulated fees, slippage, and `PAPER-` order identifiers. Repeated scans of the same candle cannot create duplicate orders, and a second position in the same contract is blocked. Existing positions are checked against later candles for stop-loss, target, gap, and configured time exits before a new scan.
 
@@ -200,7 +207,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-## Release 5 Execution Guard
+## Release 5.1 Execution Guard
 
 Order execution only reaches the paper broker when all of these are true:
 

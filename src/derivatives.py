@@ -188,6 +188,10 @@ def validate_derivative_config(config: object) -> None:
         raise ValueError("derivatives.instruments may contain only futures and options")
     if config.get("option_buying_only", True) is not True:
         raise ValueError("derivatives.option_buying_only must remain true")
+    if config.get("prefer_long_options", True) is not True:
+        raise ValueError("derivatives.prefer_long_options must remain true")
+    _bounded_int(config, "min_average_volume", 0, 1000000, 100)
+    _bounded_int(config, "confidence_threshold", 50, 75, 55)
     _bounded_int(config, "option_strikes", 1, 3, 1)
     _bounded_int(config, "max_expiry_days", 1, 60, 45)
     _bounded_int(config, "minimum_expiry_days", 0, 10, 1)
