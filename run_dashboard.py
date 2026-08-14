@@ -7,6 +7,8 @@ from pathlib import Path
 import uvicorn
 
 from src.dashboard import create_app
+from src.config import load_config
+from src.live_market import build_dashboard_market_feed
 
 
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
@@ -27,13 +29,22 @@ def main() -> None:
         "--decision-log",
         default=os.getenv("TRADEBOT_DECISION_LOG", "logs/decisions.jsonl"),
     )
+    parser.add_argument(
+        "--config",
+        default=os.getenv("TRADEBOT_CONFIG"),
+        help="Optional application config enabling the read-only live index feed",
+    )
     args = parser.parse_args()
 
     host = validate_dashboard_host(args.host)
     if args.port < 1024 or args.port > 65535:
         raise ValueError("Dashboard port must be between 1024 and 65535")
 
-    app = create_app(Path(args.decision_log))
+    market_feed = None
+    if args.config:
+        config = load_config(Path(args.config))
+        market_feed = build_dashboard_market_feed(config)
+    app = create_app(Path(args.decision_log), market_feed=market_feed)
     uvicorn.run(app, host=host, port=args.port, access_log=False)
 
 

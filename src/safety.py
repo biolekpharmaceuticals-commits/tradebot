@@ -121,6 +121,7 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
     from .derivatives import validate_derivative_config
     from .backtest import validate_backtest_config
     from .broker import validate_paper_execution_config
+    from .live_market import validate_dashboard_market_config
 
     validate_market_data_config(market_data)
     try:
@@ -128,6 +129,7 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
         validate_derivative_config(raw.get("derivatives"))
         validate_backtest_config(raw.get("backtesting"))
         validate_paper_execution_config(raw.get("paper_execution"))
+        validate_dashboard_market_config(raw.get("market_dashboard"), symbols, market_data)
     except ValueError as exc:
         raise SafetyConfigError(str(exc)) from None
 

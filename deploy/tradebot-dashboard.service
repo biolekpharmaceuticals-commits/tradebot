@@ -10,13 +10,16 @@ Group=tradebot
 WorkingDirectory=/opt/tradebot
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=TRADEBOT_DECISION_LOG=/opt/tradebot/logs/decisions.jsonl
-ExecStart=/opt/tradebot/venv/bin/python /opt/tradebot/app/run_dashboard.py --host 127.0.0.1 --port 8000 --decision-log /opt/tradebot/logs/decisions.jsonl
+Environment=TRADEBOT_CONFIG=/etc/tradebot/config.yaml
+EnvironmentFile=/etc/tradebot/tradebot.env
+ExecStart=/opt/tradebot/venv/bin/python /opt/tradebot/app/run_dashboard.py --host 127.0.0.1 --port 8000 --decision-log /opt/tradebot/logs/decisions.jsonl --config /etc/tradebot/config.yaml
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+ReadWritePaths=/opt/tradebot/logs
 UMask=0077
 
 [Install]

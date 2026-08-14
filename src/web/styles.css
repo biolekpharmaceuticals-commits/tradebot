@@ -51,6 +51,21 @@ h2 { margin-bottom: 18px; font-size: 1.15rem; }
 .meter i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--green)); transition: width .3s ease; }
 
 .grid { display: grid; gap: 14px; margin-bottom: 14px; }
+.market-panel { margin: 18px 0 14px; }
+.market-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.market-card { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: rgba(2, 10, 8, .34); }
+.market-card-heading { display: flex; justify-content: space-between; gap: 18px; align-items: start; margin-bottom: 14px; }
+.market-symbol { display: block; margin-bottom: 5px; color: var(--muted); font-size: .72rem; font-weight: 800; letter-spacing: .1em; }
+.market-price { display: block; font-size: clamp(1.55rem, 3vw, 2.35rem); letter-spacing: -.04em; }
+.market-direction { display: flex; flex-direction: column; align-items: end; gap: 6px; text-align: right; }
+.market-direction strong { font-size: 1rem; }
+.market-direction span { color: var(--muted); font-size: .74rem; }
+.candle-chart { display: block; width: 100%; height: 300px; border-radius: 10px; background: rgba(0, 0, 0, .12); }
+.market-ohlc { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 12px; }
+.market-ohlc div { padding: 9px; border-radius: 9px; background: rgba(255,255,255,.025); }
+.market-ohlc span { display: block; color: var(--muted); font-size: .65rem; text-transform: uppercase; letter-spacing: .06em; }
+.market-ohlc strong { display: block; margin-top: 4px; font-size: .82rem; }
+.market-time { display: block; margin-top: 10px; color: var(--muted); text-align: right; }
 .scanner-panel { margin-bottom: 14px; }
 .backtest-panel { margin-bottom: 14px; }
 .paper-panel { margin-bottom: 14px; }
@@ -84,6 +99,7 @@ footer { padding: 24px 0 40px; color: var(--muted); font-size: .76rem; text-alig
 
 @media (max-width: 980px) {
   .metrics { grid-template-columns: repeat(2, 1fr); }
+  .market-grid { grid-template-columns: 1fr; }
   .two-column { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
@@ -95,4 +111,6 @@ footer { padding: 24px 0 40px; color: var(--muted); font-size: .76rem; text-alig
   .safety-banner { flex-direction: column; }
   .details div { grid-template-columns: 1fr; gap: 5px; }
   .paper-summary { grid-template-columns: repeat(2, 1fr); }
+  .market-card-heading { align-items: start; }
+  .market-ohlc { grid-template-columns: repeat(2, 1fr); }
 }

@@ -5,6 +5,7 @@ const text = (id, value) => { byId(id).textContent = value ?? "—"; };
 const number = (value, digits = 2) => Number.isFinite(Number(value))
   ? Number(value).toLocaleString("en-IN", { maximumFractionDigits: digits })
   : "—";
+let lastMarketPayload = null;
 
 function cell(value, className = "") {
   const td = document.createElement("td");
@@ -73,6 +74,128 @@ function renderLatest(record) {
       ? `${record.order?.message || "Paper order filled"} · ${record.order?.order_id || ""}`
       : (record.execution_blockers || []).join("; ") || record.order?.message || "No paper order executed",
   );
+}
+
+function renderMarket(payload) {
+  lastMarketPayload = payload;
+  const status = String(payload.status || "unavailable").toUpperCase();
+  text("marketFeedStatus", status);
+  byId("marketFeedStatus").className = `badge ${payload.status === "available" ? "safe" : ""}`;
+  const errors = Array.isArray(payload.errors) ? payload.errors : [];
+  text(
+    "marketFeedExplanation",
+    payload.status === "available"
+      ? `Read-only ${String(payload.timeframe || "ONE_MINUTE").replaceAll("_", " ").toLowerCase()} candles · refreshes every ${number(payload.refresh_seconds, 0)} seconds.`
+      : errors.map((item) => `${item.symbol}: ${item.reason}`).join("; ") || "Live index candles are not configured.",
+  );
+
+  const indices = Array.isArray(payload.indices) ? payload.indices : [];
+  renderIndexCard("nifty50", indices.find((item) => item.symbol === "NIFTY 50"));
+  renderIndexCard("bankNifty", indices.find((item) => item.symbol === "NIFTY BANK"));
+}
+
+function renderIndexCard(prefix, market) {
+  if (!market) {
+    text(`${prefix}Price`, "—");
+    text(`${prefix}Change`, "Unavailable");
+    text(`${prefix}Action`, "No current candles");
+    drawCandles(byId(`${prefix}Chart`), []);
+    return;
+  }
+
+  const change = Number(market.change) || 0;
+  const changePct = Number(market.change_pct) || 0;
+  text(`${prefix}Price`, number(market.price));
+  text(`${prefix}Change`, `${change >= 0 ? "+" : ""}${number(change)} (${changePct >= 0 ? "+" : ""}${number(changePct)}%)`);
+  byId(`${prefix}Change`).className = change >= 0 ? "positive" : "negative";
+  text(`${prefix}Action`, market.price_action || "—");
+  text(`${prefix}Open`, number(market.open));
+  text(`${prefix}High`, number(market.high));
+  text(`${prefix}Low`, number(market.low));
+  text(`${prefix}Previous`, number(market.previous_close));
+  text(`${prefix}Time`, market.timestamp ? `Latest candle ${new Date(market.timestamp).toLocaleString("en-IN")}` : "No timestamp");
+  drawCandles(byId(`${prefix}Chart`), Array.isArray(market.candles) ? market.candles : []);
+}
+
+function drawCandles(canvas, candles) {
+  const width = Math.max(320, Math.floor(canvas.clientWidth || 640));
+  const height = 300;
+  const ratio = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+  const context = canvas.getContext("2d");
+  context.scale(ratio, ratio);
+  context.clearRect(0, 0, width, height);
+
+  const data = candles.slice(-60);
+  if (!data.length) {
+    context.fillStyle = "#90a59d";
+    context.font = "13px system-ui";
+    context.textAlign = "center";
+    context.fillText("Waiting for one-minute candles", width / 2, height / 2);
+    return;
+  }
+
+  const padding = { top: 14, right: 62, bottom: 28, left: 8 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const lows = data.map((item) => Number(item.low));
+  const highs = data.map((item) => Number(item.high));
+  let minimum = Math.min(...lows);
+  let maximum = Math.max(...highs);
+  const priceRange = Math.max(maximum - minimum, Math.abs(maximum) * 0.0005, 1);
+  minimum -= priceRange * 0.08;
+  maximum += priceRange * 0.08;
+  const y = (price) => padding.top + (maximum - Number(price)) / (maximum - minimum) * plotHeight;
+
+  context.strokeStyle = "rgba(144,165,157,.14)";
+  context.fillStyle = "#90a59d";
+  context.font = "10px system-ui";
+  context.textAlign = "left";
+  for (let line = 0; line <= 4; line += 1) {
+    const gridY = padding.top + plotHeight * line / 4;
+    context.beginPath();
+    context.moveTo(padding.left, gridY);
+    context.lineTo(width - padding.right, gridY);
+    context.stroke();
+    const label = maximum - (maximum - minimum) * line / 4;
+    context.fillText(number(label), width - padding.right + 8, gridY + 3);
+  }
+
+  const slot = plotWidth / data.length;
+  const bodyWidth = Math.max(2, Math.min(9, slot * 0.62));
+  data.forEach((item, index) => {
+    const center = padding.left + slot * index + slot / 2;
+    const openY = y(item.open);
+    const closeY = y(item.close);
+    const rising = Number(item.close) >= Number(item.open);
+    const color = rising ? "#55e6a5" : "#ff7b83";
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.beginPath();
+    context.moveTo(center, y(item.high));
+    context.lineTo(center, y(item.low));
+    context.stroke();
+    context.fillRect(center - bodyWidth / 2, Math.min(openY, closeY), bodyWidth, Math.max(1, Math.abs(closeY - openY)));
+  });
+
+  const latest = data[data.length - 1];
+  context.strokeStyle = Number(latest.close) >= Number(latest.open) ? "rgba(85,230,165,.65)" : "rgba(255,123,131,.65)";
+  context.setLineDash([4, 4]);
+  context.beginPath();
+  context.moveTo(padding.left, y(latest.close));
+  context.lineTo(width - padding.right, y(latest.close));
+  context.stroke();
+  context.setLineDash([]);
+
+  const timeIndices = [0, Math.floor((data.length - 1) / 2), data.length - 1];
+  context.fillStyle = "#90a59d";
+  context.textAlign = "center";
+  timeIndices.forEach((index) => {
+    const date = new Date(data[index].timestamp);
+    const label = date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+    context.fillText(label, padding.left + slot * index + slot / 2, height - 8);
+  });
 }
 
 function renderPaperPortfolio(record, portfolio) {
@@ -239,5 +362,25 @@ async function refresh() {
   }
 }
 
+async function refreshMarket() {
+  try {
+    const response = await fetch("/api/market", { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    renderMarket(await response.json());
+  } catch (error) {
+    text("marketFeedStatus", "UNAVAILABLE");
+    text("marketFeedExplanation", "Could not read the live market feed. Trading execution remains unchanged.");
+  }
+}
+
 refresh();
+refreshMarket();
 setInterval(refresh, 60000);
+setInterval(refreshMarket, 15000);
+let resizeTimer;
+window.addEventListener("resize", () => {
+  window.clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(() => {
+    if (lastMarketPayload) renderMarket(lastMarketPayload);
+  }, 120);
+});

@@ -67,8 +67,20 @@ class AngelOneMarketDataProvider:
         self._last_request_at: float | None = None
 
     def get_candles(self, symbol_config: dict) -> pd.DataFrame:
+        to_date = self.clock()
+        if to_date.tzinfo is None:
+            to_date = to_date.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+        from_date = to_date - timedelta(days=self.lookback_days)
+        return self.get_candles_between(symbol_config, from_date, to_date)
+
+    def get_candles_between(
+        self,
+        symbol_config: dict,
+        from_date: datetime,
+        to_date: datetime,
+    ) -> pd.DataFrame:
         client = self._authenticated_client()
-        params = self._candle_params(symbol_config)
+        params = self._candle_params_between(symbol_config, from_date, to_date)
         for attempt in range(self.max_retries + 1):
             try:
                 self._respect_rate_limit()
@@ -135,21 +147,36 @@ class AngelOneMarketDataProvider:
         return {name: os.environ[name] for name in self.REQUIRED_ENV}
 
     def _candle_params(self, symbol_config: dict) -> dict[str, str]:
-        exchange = _required_symbol_value(symbol_config, "exchange")
-        token = _required_symbol_value(symbol_config, "token")
-        timeframe = _required_symbol_value(symbol_config, "timeframe")
-
         to_date = self.clock()
         if to_date.tzinfo is None:
             to_date = to_date.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
         from_date = to_date - timedelta(days=self.lookback_days)
 
+        return self._candle_params_between(symbol_config, from_date, to_date)
+
+    @staticmethod
+    def _candle_params_between(
+        symbol_config: dict,
+        from_date: datetime,
+        to_date: datetime,
+    ) -> dict[str, str]:
+        exchange = _required_symbol_value(symbol_config, "exchange")
+        token = _required_symbol_value(symbol_config, "token")
+        timeframe = _required_symbol_value(symbol_config, "timeframe")
+        timezone = ZoneInfo("Asia/Kolkata")
+        if from_date.tzinfo is None:
+            from_date = from_date.replace(tzinfo=timezone)
+        if to_date.tzinfo is None:
+            to_date = to_date.replace(tzinfo=timezone)
+        if from_date >= to_date:
+            raise MarketDataError("Historical candle start must be before end")
+
         return {
             "exchange": exchange,
             "symboltoken": token,
             "interval": timeframe,
-            "fromdate": from_date.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M"),
-            "todate": to_date.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M"),
+            "fromdate": from_date.astimezone(timezone).strftime("%Y-%m-%d %H:%M"),
+            "todate": to_date.astimezone(timezone).strftime("%Y-%m-%d %H:%M"),
         }
 
     @staticmethod
