@@ -180,3 +180,6 @@ def test_dashboard_service_loads_configured_read_only_credentials():
     assert "EnvironmentFile=/etc/tradebot/tradebot.env" in service
     assert "--config /etc/tradebot/config.yaml" in service
     assert "--host 127.0.0.1" in service
+    assert "WorkingDirectory=/opt/tradebot" in service
+    assert "ProtectSystem=strict" in service
+    assert "ReadWritePaths=/opt/tradebot/logs" in service
