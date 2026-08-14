@@ -57,15 +57,17 @@ class NSEFODailyArchive:
         self,
         cache_dir: Path,
         *,
-        timeout_seconds: float = 20,
-        request_interval_seconds: float = 0.35,
-        max_retries: int = 2,
+        timeout_seconds: float = 45,
+        request_interval_seconds: float = 1.0,
+        max_retries: int = 5,
         fetcher: Callable[[str], bytes | None] | None = None,
+        session: requests.Session | None = None,
     ) -> None:
         self.cache_dir = Path(cache_dir)
         self.timeout_seconds = timeout_seconds
         self.request_interval_seconds = request_interval_seconds
         self.max_retries = max_retries
+        self.session = session or requests.Session()
         self.fetcher = fetcher or self._fetch
         self._last_request_at = 0.0
 
@@ -89,28 +91,40 @@ class NSEFODailyArchive:
     def _fetch(self, url: str) -> bytes | None:
         headers = {
             "Accept": "application/zip,application/octet-stream,*/*",
+            "Connection": "keep-alive",
             "Referer": "https://www.nseindia.com/all-reports-derivatives",
-            "User-Agent": "Mozilla/5.0 (compatible; tradebot-research/5.4)",
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            ),
         }
         last_error = "NSE archive request failed"
         for attempt in range(self.max_retries + 1):
+            response_headers: object = {}
             elapsed = time.monotonic() - self._last_request_at
             if elapsed < self.request_interval_seconds:
                 time.sleep(self.request_interval_seconds - elapsed)
             try:
-                response = requests.get(url, headers=headers, timeout=self.timeout_seconds)
+                response = self.session.get(url, headers=headers, timeout=self.timeout_seconds)
                 self._last_request_at = time.monotonic()
-            except requests.RequestException:
-                last_error = "NSE archive request failed"
+            except requests.RequestException as exc:
+                last_error = f"NSE archive request failed ({type(exc).__name__}: {exc})"
             else:
+                response_headers = response.headers
                 if response.status_code == 404:
                     return None
-                if response.status_code == 200:
-                    _validate_zip(response.content)
-                    return response.content
-                last_error = f"NSE archive returned HTTP {response.status_code}"
+                elif response.status_code == 200:
+                    try:
+                        _validate_zip(response.content)
+                    except NSEBacktestError as exc:
+                        last_error = str(exc)
+                    else:
+                        return response.content
+                else:
+                    last_error = f"NSE archive returned HTTP {response.status_code}"
             if attempt < self.max_retries:
-                time.sleep(1.0 * (attempt + 1))
+                retry_after = _retry_after_seconds(response_headers)
+                time.sleep(max(retry_after, min(2**attempt, 16)))
         raise NSEBacktestError(last_error)
 
 
@@ -574,6 +588,15 @@ def _integer(value: object) -> int:
         return int(float(str(value or "0").replace(",", "")))
     except ValueError:
         return 0
+
+
+def _retry_after_seconds(headers: object) -> float:
+    if not isinstance(headers, dict) and not hasattr(headers, "get"):
+        return 0.0
+    try:
+        return max(0.0, min(float(headers.get("Retry-After", 0)), 60.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def render_summary(report: dict[str, object], report_file: Path | None = None) -> str:
