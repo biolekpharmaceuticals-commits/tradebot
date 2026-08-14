@@ -6,6 +6,7 @@ import zipfile
 from datetime import date
 
 import pytest
+import requests
 
 from src.nse_option_backtest import (
     NSEBacktestError,
@@ -188,3 +189,79 @@ def test_window_fails_closed_when_archive_coverage_is_insufficient(tmp_path):
             calendar_days=10,
             minimum_sessions=2,
         )
+
+
+def test_archive_retries_transient_connection_failure(tmp_path, monkeypatch):
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=[
+            "TradDt",
+            "TckrSymb",
+            "XpryDt",
+            "StrkPric",
+            "OptnTp",
+            "OpnPric",
+            "HghPric",
+            "LwPric",
+            "ClsPric",
+            "SttlmPric",
+            "UndrlygPric",
+            "OpnIntrst",
+            "ChngInOpnIntrst",
+            "TtlTradgVol",
+            "NewBrdLotQty",
+        ],
+    )
+    writer.writeheader()
+    writer.writerow(
+        {
+            "TradDt": "2026-08-14",
+            "TckrSymb": "NIFTY",
+            "XpryDt": "2026-08-20",
+            "StrkPric": "24300",
+            "OptnTp": "CE",
+            "OpnPric": "10",
+            "HghPric": "12",
+            "LwPric": "9",
+            "ClsPric": "11",
+            "SttlmPric": "11",
+            "UndrlygPric": "24366",
+            "OpnIntrst": "2000",
+            "ChngInOpnIntrst": "100",
+            "TtlTradgVol": "500",
+            "NewBrdLotQty": "65",
+        }
+    )
+    zipped = io.BytesIO()
+    with zipfile.ZipFile(zipped, "w") as archive_file:
+        archive_file.writestr("BhavCopy.csv", output.getvalue())
+
+    class Response:
+        status_code = 200
+        content = zipped.getvalue()
+        headers = {}
+
+    class FlakySession:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url, headers, timeout):
+            self.calls += 1
+            if self.calls == 1:
+                raise requests.ConnectionError("temporary reset")
+            return Response()
+
+    session = FlakySession()
+    monkeypatch.setattr("src.nse_option_backtest.time.sleep", lambda seconds: None)
+    archive = NSEFODailyArchive(
+        tmp_path,
+        request_interval_seconds=0,
+        max_retries=2,
+        session=session,
+    )
+
+    rows = archive.load(date(2026, 8, 14))
+
+    assert session.calls == 2
+    assert rows is not None and len(rows) == 1
