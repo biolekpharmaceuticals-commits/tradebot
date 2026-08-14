@@ -43,6 +43,34 @@ derivatives:
   timeframe: FIVE_MINUTE
   timeout_seconds: 10
 
+option_selling:
+  enabled: false
+  paper_only: true
+  shadow_mode: true
+  defined_risk_only: true
+  naked_short_options: false
+  structures:
+    - credit_spread
+    - iron_condor
+    - iron_fly
+  chain_strikes_each_side: 6
+  wing_width_strikes: 2
+  minimum_expiry_days: 2
+  maximum_expiry_days: 10
+  min_open_interest: 1000
+  min_volume: 100
+  max_bid_ask_spread_pct: 10
+  min_credit_to_risk: 0.2
+  max_risk_per_trade_pct: 0.5
+  max_daily_loss_pct: 1.0
+  max_trades_per_day: 2
+  max_open_structures: 1
+  entry_start: "09:30"
+  entry_end: "14:30"
+  force_exit: "15:10"
+  bullish_pcr: 1.1
+  bearish_pcr: 0.9
+
 backtesting:
   enabled: false
   minimum_candles: 80

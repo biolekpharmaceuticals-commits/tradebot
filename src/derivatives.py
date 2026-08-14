@@ -63,23 +63,7 @@ class AngelOneDerivativeDiscovery:
         if normalized is None or direction not in {"BUY", "SELL"} or spot_price <= 0:
             return []
 
-        rows = self._load_master()
-        today = self.today()
-        matching = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            if str(row.get("exch_seg", "")).upper() != "NFO":
-                continue
-            if str(row.get("name", "")).upper() != normalized:
-                continue
-            expiry = _parse_expiry(row.get("expiry"))
-            if expiry is None:
-                continue
-            days_to_expiry = (expiry - today).days
-            if days_to_expiry < self.minimum_expiry_days or days_to_expiry > self.max_expiry_days:
-                continue
-            matching.append((expiry, row))
+        matching = self._matching_contracts(normalized)
 
         contracts: list[dict] = []
         if "futures" in self.instruments:
@@ -109,6 +93,74 @@ class AngelOneDerivativeDiscovery:
                     )
 
         return contracts[: self.max_contracts]
+
+    def option_chain_for(
+        self,
+        underlying: str,
+        spot_price: float,
+        *,
+        strikes_each_side: int,
+        minimum_expiry_days: int | None = None,
+        maximum_expiry_days: int | None = None,
+    ) -> list[dict]:
+        normalized = UNDERLYING_NAMES.get(underlying.strip().upper())
+        if normalized is None or spot_price <= 0 or strikes_each_side < 2:
+            return []
+        options = [
+            item
+            for item in self._matching_contracts(normalized)
+            if item[1].get("instrumenttype") == "OPTIDX"
+        ]
+        today = self.today()
+        if minimum_expiry_days is not None:
+            options = [item for item in options if (item[0] - today).days >= minimum_expiry_days]
+        if maximum_expiry_days is not None:
+            options = [item for item in options if (item[0] - today).days <= maximum_expiry_days]
+        if not options:
+            return []
+        nearest_expiry = min(item[0] for item in options)
+        same_expiry = [item for item in options if item[0] == nearest_expiry]
+        strikes = sorted({_strike(row) for _, row in same_expiry if _strike(row) > 0})
+        if not strikes:
+            return []
+        atm_index = min(range(len(strikes)), key=lambda index: abs(strikes[index] - spot_price))
+        selected_strikes = set(
+            strikes[max(0, atm_index - strikes_each_side) : atm_index + strikes_each_side + 1]
+        )
+        contracts = []
+        for expiry, row in same_expiry:
+            strike = _strike(row)
+            symbol = str(row.get("symbol", "")).upper()
+            if strike not in selected_strikes or not symbol.endswith(("CE", "PE")):
+                continue
+            derivative_type = "call" if symbol.endswith("CE") else "put"
+            contracts.append(
+                self._config(row, normalized, expiry, derivative_type, strike, "SELL")
+            )
+        return sorted(
+            contracts,
+            key=lambda item: (float(item.get("strike") or 0), str(item.get("derivative_type"))),
+        )[:50]
+
+    def _matching_contracts(self, normalized: str) -> list[tuple[date, dict]]:
+        rows = self._load_master()
+        today = self.today()
+        matching = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("exch_seg", "")).upper() != "NFO":
+                continue
+            if str(row.get("name", "")).upper() != normalized:
+                continue
+            expiry = _parse_expiry(row.get("expiry"))
+            if expiry is None:
+                continue
+            days_to_expiry = (expiry - today).days
+            if days_to_expiry < self.minimum_expiry_days or days_to_expiry > self.max_expiry_days:
+                continue
+            matching.append((expiry, row))
+        return matching
 
     def _load_master(self) -> list[dict]:
         if self._master is not None:

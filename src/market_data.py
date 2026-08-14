@@ -102,6 +102,38 @@ class AngelOneMarketDataProvider:
 
         raise MarketDataError("Angel One candle retrieval failed")
 
+    def get_full_quotes(self, contracts: list[dict]) -> list[dict]:
+        if not contracts or len(contracts) > 50:
+            raise MarketDataError("Angel One FULL quote request requires 1 to 50 contracts")
+        exchange_tokens: dict[str, list[str]] = {}
+        by_token: dict[tuple[str, str], dict] = {}
+        for contract in contracts:
+            exchange = _required_symbol_value(contract, "exchange")
+            token = _required_symbol_value(contract, "token")
+            exchange_tokens.setdefault(exchange, []).append(token)
+            by_token[(exchange, token)] = dict(contract)
+
+        client = self._authenticated_client()
+        for attempt in range(self.max_retries + 1):
+            try:
+                self._respect_rate_limit()
+                with _suppress_smartapi_logging():
+                    response = client.getMarketData("FULL", exchange_tokens)
+            except Exception as exc:
+                if _is_rate_limit_exception(exc) and attempt < self.max_retries:
+                    self.sleeper(self.retry_backoff_seconds * (attempt + 1))
+                    continue
+                raise MarketDataError("Angel One FULL market quote retrieval failed") from None
+
+            if _is_rate_limited(response):
+                if attempt < self.max_retries:
+                    self.sleeper(self.retry_backoff_seconds * (attempt + 1))
+                    continue
+                raise MarketDataError("Angel One market-data rate limit reached")
+            return _parse_full_quotes(response, by_token)
+
+        raise MarketDataError("Angel One FULL market quote retrieval failed")
+
     def _authenticated_client(self):
         if self._client is not None:
             return self._client
@@ -284,6 +316,55 @@ def _is_rate_limit_exception(exc: Exception) -> bool:
             "access denied because of exceeding access rate",
         )
     )
+
+
+def _parse_full_quotes(
+    response: object,
+    contracts: dict[tuple[str, str], dict],
+) -> list[dict]:
+    if not isinstance(response, dict) or response.get("status") is not True:
+        raise MarketDataError("Angel One FULL market quote response was unsuccessful")
+    data = response.get("data")
+    fetched = data.get("fetched") if isinstance(data, dict) else None
+    if not isinstance(fetched, list) or not fetched:
+        raise MarketDataError("Angel One FULL market quote response was empty")
+
+    quotes = []
+    for raw in fetched:
+        if not isinstance(raw, dict):
+            continue
+        exchange = str(raw.get("exchange", "")).strip()
+        token = str(raw.get("symbolToken", raw.get("symboltoken", ""))).strip()
+        contract = contracts.get((exchange, token))
+        if contract is None:
+            continue
+        depth = raw.get("depth") if isinstance(raw.get("depth"), dict) else {}
+        buy = depth.get("buy") if isinstance(depth.get("buy"), list) else []
+        sell = depth.get("sell") if isinstance(depth.get("sell"), list) else []
+        best_bid = _quote_number(buy[0].get("price")) if buy and isinstance(buy[0], dict) else 0.0
+        best_ask = _quote_number(sell[0].get("price")) if sell and isinstance(sell[0], dict) else 0.0
+        quotes.append(
+            {
+                **contract,
+                "ltp": _quote_number(raw.get("ltp")),
+                "open_interest": _quote_number(
+                    raw.get("opnInterest", raw.get("openInterest", raw.get("open_interest")))
+                ),
+                "volume": _quote_number(raw.get("tradeVolume", raw.get("volume"))),
+                "best_bid": best_bid,
+                "best_ask": best_ask,
+            }
+        )
+    if not quotes:
+        raise MarketDataError("Angel One FULL market quote response had no matching contracts")
+    return quotes
+
+
+def _quote_number(value: object) -> float:
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 @contextmanager
