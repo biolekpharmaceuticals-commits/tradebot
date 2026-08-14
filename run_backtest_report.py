@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=None)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--symbol", action="append", dest="symbols")
+    parser.add_argument("--print-json", action="store_true")
     args = parser.parse_args()
 
     config = load_config(Path(args.config))
@@ -42,7 +43,41 @@ def main() -> None:
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(rendered + "\n", encoding="utf-8")
-    print(rendered)
+    if args.print_json:
+        print(rendered)
+        return
+
+    print(
+        json.dumps(
+            {
+                "strategy": report["strategy"],
+                "requested_calendar_days": report["requested_calendar_days"],
+                "paper_initial_balance": report["paper_initial_balance"],
+                "report_file": str(args.output) if args.output else None,
+                "symbols": [
+                    {
+                        "symbol": item["symbol"],
+                        "timeframe": item["timeframe"],
+                        "period_start": item["period_start"],
+                        "period_end": item["period_end"],
+                        "candles": item["result"].get("candles"),
+                        "trades": item["result"].get("trades"),
+                        "wins": item["result"].get("wins"),
+                        "losses": item["result"].get("losses"),
+                        "win_rate_pct": item["result"].get("win_rate_pct"),
+                        "net_return_pct": item["result"].get("net_return_pct"),
+                        "max_drawdown_pct": item["result"].get("max_drawdown_pct"),
+                        "average_trade_pct": item["result"].get("average_trade_pct"),
+                        "profit_factor": item["result"].get("profit_factor"),
+                    }
+                    for item in report["symbols"]
+                ],
+                "limitations": report["methodology"]["warning"],
+            },
+            indent=2,
+            default=str,
+        )
+    )
 
 
 if __name__ == "__main__":
