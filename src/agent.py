@@ -14,6 +14,7 @@ from .derivatives import DerivativeDiscoveryError, build_derivative_discovery
 from .logger import DecisionLogger
 from .market_data import MarketDataError, build_market_data_provider
 from .news import NewsAnalyzer
+from .option_selling import OptionSellingError, build_option_selling_engine
 from .risk import RiskDecision, RiskManager
 from .scanner import build_candidate, rank_candidates
 from .strategy import TrendStrategy
@@ -43,6 +44,12 @@ class TradingAgent:
         self.market_data = build_market_data_provider(config.section("market_data"))
         self.bulk_deals = build_bulk_deal_provider(config.raw.get("bulk_deals", {}))
         self.derivatives = build_derivative_discovery(config.raw.get("derivatives", {}))
+        self.option_selling = build_option_selling_engine(
+            config.raw.get("option_selling", {}),
+            self.derivatives,
+            self.market_data,
+            config.section("risk"),
+        )
         self.strategy = TrendStrategy(config.section("strategy"))
         self.news_analyzer = NewsAnalyzer()
         self.risk = RiskManager(config.section("risk"))
@@ -106,6 +113,62 @@ class TradingAgent:
             if str(candidate.symbol_config.get("instrument_type", "equity")).lower() == "index"
         ]
         scanner_mode = "cash_and_indices"
+        if self.option_selling.enabled:
+            proposals = []
+            for candidate, bulk_deals in candidates:
+                if str(candidate.symbol_config.get("instrument_type", "")).lower() != "index":
+                    continue
+                try:
+                    proposal = self.option_selling.propose(
+                        str(candidate.symbol_config.get("symbol", "")),
+                        float(candidate.signal.entry_price),
+                    )
+                    proposals.append((candidate, bulk_deals, proposal))
+                except OptionSellingError:
+                    failures.append(
+                        {
+                            "symbol": str(candidate.symbol_config.get("symbol", "UNKNOWN")),
+                            "reason": "OI option-chain evaluation unavailable",
+                        }
+                    )
+            if not proposals:
+                raise MarketDataError("OI option-selling engine could not evaluate any configured index")
+
+            def proposal_rank(item):
+                selected = item[2].get("selected") or {}
+                return bool(selected.get("risk_eligible", False)), float(selected.get("score", 0))
+
+            selected_candidate, selected_bulk, selected_proposal = max(proposals, key=proposal_rank)
+            scanner_payload = {
+                "enabled": True,
+                "mode": "oi_defined_risk_option_selling_shadow",
+                "universe_size": len(proposals),
+                "evaluated": len(proposals),
+                "selected_symbol": selected_candidate.symbol_config.get("symbol"),
+                "selected_eligible": False,
+                "selection_reason": "Highest defined-risk OI structure score; shadow execution remains blocked",
+                "underlying_signals": underlying_summaries,
+                "option_selling": {
+                    "paper_only": True,
+                    "shadow_mode": True,
+                    "defined_risk_only": True,
+                    "naked_short_options": False,
+                    "proposals": [proposal for _, _, proposal in proposals],
+                    "selected": selected_proposal,
+                },
+                "failures": failures,
+            }
+            self._finalize_symbol(
+                selected_candidate.symbol_config,
+                selected_candidate.candles,
+                news,
+                selected_bulk,
+                selected_candidate.signal,
+                scanner_payload=scanner_payload,
+                execution_eligible=False,
+            )
+            return
+
         if self.derivatives.enabled:
             derivative_candidates = []
             discovered_contracts: list[dict] = []
