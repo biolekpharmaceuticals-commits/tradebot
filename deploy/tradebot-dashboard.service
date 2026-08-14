@@ -7,7 +7,7 @@ After=network-online.target
 Type=simple
 User=tradebot
 Group=tradebot
-WorkingDirectory=/opt/tradebot/app
+WorkingDirectory=/opt/tradebot
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=TRADEBOT_DECISION_LOG=/opt/tradebot/logs/decisions.jsonl
 Environment=TRADEBOT_CONFIG=/etc/tradebot/config.yaml
@@ -19,6 +19,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+ReadWritePaths=/opt/tradebot/logs
 UMask=0077
 
 [Install]
