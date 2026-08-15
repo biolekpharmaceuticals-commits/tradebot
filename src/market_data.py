@@ -70,7 +70,14 @@ class AngelOneMarketDataProvider:
         to_date = self.clock()
         if to_date.tzinfo is None:
             to_date = to_date.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
-        from_date = to_date - timedelta(days=self.lookback_days)
+        lookback_days = symbol_config.get("lookback_days", self.lookback_days)
+        if (
+            not isinstance(lookback_days, int)
+            or isinstance(lookback_days, bool)
+            or not 1 <= lookback_days <= 30
+        ):
+            raise MarketDataError("Candle lookback_days must be an integer between 1 and 30")
+        from_date = to_date - timedelta(days=lookback_days)
         return self.get_candles_between(symbol_config, from_date, to_date)
 
     def get_candles_between(
