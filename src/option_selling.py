@@ -336,8 +336,14 @@ def validate_option_selling_config(
     _bounded_int(config, "min_volume", 1, 1000000000, 100)
     _bounded_number(config, "max_bid_ask_spread_pct", 1, 20, 10)
     _bounded_number(config, "min_credit_to_risk", 0.1, 0.5, 0.2)
-    _bounded_number(config, "max_risk_per_trade_pct", 0.1, 0.5, 0.5)
-    _bounded_number(config, "max_daily_loss_pct", 0.5, 1.0, 1.0)
+    _bounded_number(config, "max_risk_per_trade_pct", 0.1, 1.5, 0.5)
+    _bounded_number(config, "max_daily_loss_pct", 0.5, 1.5, 1.0)
+    if float(config.get("max_daily_loss_pct", 1.0)) < float(
+        config.get("max_risk_per_trade_pct", 0.5)
+    ):
+        raise ValueError(
+            "option_selling.max_daily_loss_pct must be at least max_risk_per_trade_pct"
+        )
     _bounded_int(config, "max_trades_per_day", 1, 3, 2)
     _bounded_int(config, "max_open_structures", 1, 1, 1)
     bullish = float(config.get("bullish_pcr", 1.1))

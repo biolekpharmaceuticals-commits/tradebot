@@ -183,7 +183,7 @@ def test_condor_maximum_loss_uses_the_wider_wing():
         ("shadow_mode", False, "shadow_mode"),
         ("defined_risk_only", False, "defined_risk_only"),
         ("naked_short_options", True, "naked_short_options"),
-        ("max_risk_per_trade_pct", 1.0, "max_risk_per_trade_pct"),
+        ("max_risk_per_trade_pct", 1.6, "max_risk_per_trade_pct"),
     ],
 )
 def test_option_selling_safety_configuration_fails_closed(tmp_path, field, value, message):
@@ -197,6 +197,35 @@ def test_option_selling_safety_configuration_fails_closed(tmp_path, field, value
     path.write_text(text.replace(old, new), encoding="utf-8")
 
     with pytest.raises(SafetyConfigError, match=message):
+        load_config(path)
+
+
+def test_option_selling_accepts_explicit_1_5_pct_research_risk(tmp_path):
+    text = (Path(__file__).resolve().parents[1] / "config.example.yaml").read_text(encoding="utf-8")
+    text = text.replace("option_selling:\n  enabled: false", "option_selling:\n  enabled: true")
+    text = text.replace("derivatives:\n  enabled: false", "derivatives:\n  enabled: true")
+    text = text.replace("market_data:\n  provider: demo", "market_data:\n  provider: angel_one")
+    text = text.replace("  max_risk_per_trade_pct: 0.5", "  max_risk_per_trade_pct: 1.5")
+    text = text.replace("  max_daily_loss_pct: 1.0", "  max_daily_loss_pct: 1.5")
+    path = tmp_path / "config.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    loaded = load_config(path)
+
+    assert loaded.section("option_selling")["max_risk_per_trade_pct"] == 1.5
+    assert loaded.section("option_selling")["max_daily_loss_pct"] == 1.5
+
+
+def test_option_selling_rejects_daily_loss_below_structure_risk(tmp_path):
+    text = (Path(__file__).resolve().parents[1] / "config.example.yaml").read_text(encoding="utf-8")
+    text = text.replace("option_selling:\n  enabled: false", "option_selling:\n  enabled: true")
+    text = text.replace("derivatives:\n  enabled: false", "derivatives:\n  enabled: true")
+    text = text.replace("market_data:\n  provider: demo", "market_data:\n  provider: angel_one")
+    text = text.replace("  max_risk_per_trade_pct: 0.5", "  max_risk_per_trade_pct: 1.5")
+    path = tmp_path / "config.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(SafetyConfigError, match="max_daily_loss_pct"):
         load_config(path)
 
 
