@@ -15,6 +15,7 @@ from .logger import DecisionLogger
 from .market_data import MarketDataError, build_market_data_provider
 from .news import NewsAnalyzer
 from .option_selling import OptionSellingError, build_option_selling_engine
+from .option_paper import DefinedRiskOptionPaperBroker
 from .risk import RiskDecision, RiskManager
 from .scanner import build_candidate, rank_candidates
 from .spot_trend import evaluate_daily_spot_trend
@@ -51,6 +52,30 @@ class TradingAgent:
             self.market_data,
             config.section("risk"),
         )
+        option_config = config.raw.get("option_selling") or {}
+        self.option_paper_broker = None
+        if option_config.get("paper_execution_enabled") is True:
+            configured_option_state = Path(str(option_config["paper_state_file"]))
+            option_state_path = (
+                configured_option_state
+                if configured_option_state.is_absolute()
+                else config.base_dir / configured_option_state
+            )
+            self.option_paper_broker = DefinedRiskOptionPaperBroker(
+                state_path=option_state_path,
+                initial_balance=self.paper_settings.initial_balance,
+                risk_limit_pct=float(option_config.get("max_risk_per_trade_pct", 0.5)),
+                daily_loss_limit_pct=float(option_config.get("max_daily_loss_pct", 1.0)),
+                max_trades_per_day=int(option_config.get("max_trades_per_day", 2)),
+                stop_after_consecutive_losses=int(
+                    config.section("risk").get("stop_after_consecutive_losses", 3)
+                ),
+                slippage_bps=self.paper_settings.slippage_bps,
+                fee_bps=self.paper_settings.fee_bps,
+                entry_start=str(option_config.get("entry_start", "09:30")),
+                entry_end=str(option_config.get("entry_end", "14:30")),
+                force_exit=str(option_config.get("force_exit", "15:10")),
+            )
         self.strategy = TrendStrategy(config.section("strategy"))
         self.news_analyzer = NewsAnalyzer()
         self.risk = RiskManager(config.section("risk"))
@@ -60,6 +85,7 @@ class TradingAgent:
         self.reconciliation_orders = []
 
     def run_once(self) -> None:
+        self.option_paper_exit_order = self._reconcile_option_paper_position()
         self.reconciliation_orders = self._reconcile_paper_positions()
         symbols = self.config.section("trading").get("symbols", [])
         if not symbols:
@@ -184,13 +210,44 @@ class TradingAgent:
                 return bool(selected.get("risk_eligible", False)), float(selected.get("score", 0))
 
             selected_candidate, selected_bulk, selected_proposal = max(proposals, key=proposal_rank)
+            option_paper_order = None
+            selected_structure = selected_proposal.get("selected") or {}
+            if (
+                self.option_paper_broker is not None
+                and selected_proposal.get("paper_execution_allowed") is True
+                and self.config.safety.auto_paper_trading_enabled
+                and not self.config.safety.kill_switch_active
+                and self.paper_settings.enabled
+                and not self.config.section("trading").get("require_manual_approval", True)
+                and news.risk_level != "High"
+            ):
+                trend = selected_proposal.get("spot_trend") or {}
+                decision_id = "|".join(
+                    (
+                        str(trend.get("signal_session", "")),
+                        str(selected_structure.get("name", "")),
+                        str(selected_structure.get("expiry", "")),
+                    )
+                )
+                option_paper_order = self.option_paper_broker.place_structure(
+                    selected_structure,
+                    decision_id,
+                )
+                selected_proposal["paper_order"] = asdict(option_paper_order)
             scanner_payload = {
                 "enabled": True,
-                "mode": "oi_defined_risk_option_selling_shadow",
+                "mode": (
+                    "oi_defined_risk_option_selling_paper"
+                    if self.option_paper_broker is not None
+                    else "oi_defined_risk_option_selling_shadow"
+                ),
                 "universe_size": len(proposals),
                 "evaluated": len(proposals),
                 "selected_symbol": selected_candidate.symbol_config.get("symbol"),
-                "selected_eligible": False,
+                "selected_eligible": bool(
+                    selected_structure.get("risk_eligible") is True
+                    and selected_proposal.get("paper_execution_allowed") is True
+                ),
                 "selection_reason": (
                     "Frozen prior-session spot trend, then highest aligned defined-risk OI score; "
                     "shadow execution remains blocked"
@@ -199,10 +256,16 @@ class TradingAgent:
                 "option_selling": {
                     "paper_only": True,
                     "shadow_mode": True,
+                    "paper_execution_enabled": self.option_paper_broker is not None,
                     "defined_risk_only": True,
                     "naked_short_options": False,
                     "proposals": [proposal for _, _, proposal in proposals],
                     "selected": selected_proposal,
+                    "paper_portfolio": (
+                        self.option_paper_broker.snapshot()
+                        if self.option_paper_broker is not None
+                        else None
+                    ),
                 },
                 "failures": failures,
             }
@@ -214,6 +277,7 @@ class TradingAgent:
                 selected_candidate.signal,
                 scanner_payload=scanner_payload,
                 execution_eligible=False,
+                option_paper_order=option_paper_order,
             )
             return
 
@@ -329,6 +393,7 @@ class TradingAgent:
         *,
         scanner_payload: dict | None = None,
         execution_eligible: bool = True,
+        option_paper_order=None,
     ) -> None:
         trading = self.config.section("trading")
 
@@ -392,6 +457,17 @@ class TradingAgent:
             risk_decision=risk_decision,
             manual_approval=trading.get("require_manual_approval", True),
         )
+        if option_paper_order is not None and option_paper_order.accepted:
+            blockers = []
+        displayed_order = order or option_paper_order
+        displayed_portfolio = (
+            self.option_paper_broker.snapshot()
+            if self.option_paper_broker is not None
+            else self.paper_broker.snapshot()
+        )
+        exit_orders = [asdict(item) for item in self.reconciliation_orders]
+        if getattr(self, "option_paper_exit_order", None) is not None:
+            exit_orders.append(asdict(self.option_paper_exit_order))
         payload = {
             "symbol": symbol_config.get("symbol"),
             "mode": self.config.safety.trading_mode,
@@ -408,10 +484,10 @@ class TradingAgent:
             "auto_paper_trading_enabled": self.config.safety.auto_paper_trading_enabled,
             "paper_execution_configured": self.paper_settings.enabled,
             "execution_blockers": blockers,
-            "executed": bool(order and order.accepted),
-            "order": asdict(order) if order else None,
-            "paper_portfolio": self.paper_broker.snapshot(),
-            "paper_exit_orders": [asdict(item) for item in self.reconciliation_orders],
+            "executed": bool(displayed_order and displayed_order.accepted),
+            "order": asdict(displayed_order) if displayed_order else None,
+            "paper_portfolio": displayed_portfolio,
+            "paper_exit_orders": exit_orders,
         }
         self.logger.write(payload)
         print(json.dumps(payload, indent=2, default=str))
@@ -427,6 +503,18 @@ class TradingAgent:
                 continue
             exit_orders.extend(self.paper_broker.reconcile(symbol_config, candles))
         return exit_orders
+
+    def _reconcile_option_paper_position(self):
+        if self.option_paper_broker is None:
+            return None
+        contracts = self.option_paper_broker.open_contracts()
+        if not contracts:
+            return None
+        try:
+            quotes = self.market_data.get_full_quotes(contracts)
+        except MarketDataError:
+            return None
+        return self.option_paper_broker.reconcile(quotes)
 
     def _execution_blockers(
         self,
