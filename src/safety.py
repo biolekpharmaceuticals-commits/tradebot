@@ -131,7 +131,12 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
         validate_backtest_config(raw.get("backtesting"))
         validate_paper_execution_config(raw.get("paper_execution"))
         validate_dashboard_market_config(raw.get("market_dashboard"), symbols, market_data)
-        validate_option_selling_config(raw.get("option_selling"), raw.get("derivatives"), market_data)
+        validate_option_selling_config(
+            raw.get("option_selling"),
+            raw.get("derivatives"),
+            market_data,
+            raw.get("paper_execution"),
+        )
     except ValueError as exc:
         raise SafetyConfigError(str(exc)) from None
 
