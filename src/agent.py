@@ -17,6 +17,7 @@ from .news import NewsAnalyzer
 from .option_selling import OptionSellingError, build_option_selling_engine
 from .risk import RiskDecision, RiskManager
 from .scanner import build_candidate, rank_candidates
+from .spot_trend import evaluate_daily_spot_trend
 from .strategy import TrendStrategy
 
 
@@ -115,14 +116,58 @@ class TradingAgent:
         scanner_mode = "cash_and_indices"
         if self.option_selling.enabled:
             proposals = []
+            option_config = self.config.raw.get("option_selling") or {}
+            spot_trend_config = option_config.get("spot_trend") or {}
+            trend_enabled = spot_trend_config.get("enabled") is True
+            allowed_underlyings = set(spot_trend_config.get("underlyings", []))
             for candidate, bulk_deals in candidates:
                 if str(candidate.symbol_config.get("instrument_type", "")).lower() != "index":
                     continue
+                symbol = str(candidate.symbol_config.get("symbol", ""))
+                if trend_enabled and symbol not in allowed_underlyings:
+                    continue
                 try:
-                    proposal = self.option_selling.propose(
-                        str(candidate.symbol_config.get("symbol", "")),
-                        float(candidate.signal.entry_price),
-                    )
+                    spot_trend = None
+                    if trend_enabled:
+                        daily_config = {
+                            **candidate.symbol_config,
+                            "timeframe": spot_trend_config.get("timeframe", "ONE_DAY"),
+                            "lookback_days": int(spot_trend_config.get("lookback_days", 30)),
+                        }
+                        daily_candles = self.market_data.get_candles(daily_config)
+                        spot_trend = evaluate_daily_spot_trend(daily_candles, spot_trend_config)
+                        if spot_trend.get("eligible") is not True:
+                            proposals.append(
+                                (
+                                    candidate,
+                                    bulk_deals,
+                                    {
+                                        "enabled": True,
+                                        "status": "spot_trend_blocked",
+                                        "mode": "shadow_defined_risk_only",
+                                        "underlying": symbol,
+                                        "selected": None,
+                                        "structures": [],
+                                        "spot_trend": spot_trend,
+                                        "paper_execution_allowed": False,
+                                        "reason": "Frozen Release 5.6 spot-trend gate blocked option evaluation",
+                                    },
+                                )
+                            )
+                            continue
+                    if spot_trend:
+                        proposal = self.option_selling.propose(
+                            symbol,
+                            float(candidate.signal.entry_price),
+                            str(spot_trend.get("regime")),
+                        )
+                    else:
+                        proposal = self.option_selling.propose(
+                            symbol,
+                            float(candidate.signal.entry_price),
+                        )
+                    if spot_trend:
+                        proposal["spot_trend"] = spot_trend
                     proposals.append((candidate, bulk_deals, proposal))
                 except OptionSellingError:
                     failures.append(
@@ -146,7 +191,10 @@ class TradingAgent:
                 "evaluated": len(proposals),
                 "selected_symbol": selected_candidate.symbol_config.get("symbol"),
                 "selected_eligible": False,
-                "selection_reason": "Highest defined-risk OI structure score; shadow execution remains blocked",
+                "selection_reason": (
+                    "Frozen prior-session spot trend, then highest aligned defined-risk OI score; "
+                    "shadow execution remains blocked"
+                ),
                 "underlying_signals": underlying_summaries,
                 "option_selling": {
                     "paper_only": True,
