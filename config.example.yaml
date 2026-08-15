@@ -70,6 +70,20 @@ option_selling:
   force_exit: "15:10"
   bullish_pcr: 1.1
   bearish_pcr: 0.9
+  spot_trend:
+    enabled: false
+    underlyings:
+      - NIFTY 50
+    timeframe: ONE_DAY
+    lookback_days: 30
+    ema_fast: 5
+    ema_slow: 20
+    momentum_days: 5
+    momentum_threshold_pct: 0.15
+    volatility_lookback: 10
+    minimum_volatility_pct: 5
+    maximum_volatility_pct: 35
+    allow_range_condor: true
 
 backtesting:
   enabled: false
