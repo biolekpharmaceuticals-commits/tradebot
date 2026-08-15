@@ -6,6 +6,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from .market_data import MarketDataError
+from .spot_trend import validate_spot_trend_config
 
 
 ALLOWED_STRUCTURES = {"credit_spread", "iron_condor", "iron_fly"}
@@ -39,7 +40,12 @@ class DefinedRiskOptionSellingEngine:
         self.capital = float(risk_config.get("capital", 300000))
         self.clock = clock or (lambda: datetime.now(ZoneInfo("Asia/Kolkata")))
 
-    def propose(self, underlying: str, spot_price: float) -> dict[str, object]:
+    def propose(
+        self,
+        underlying: str,
+        spot_price: float,
+        regime: str | None = None,
+    ) -> dict[str, object]:
         now = self.clock()
         if now.tzinfo is None:
             now = now.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
@@ -161,7 +167,17 @@ class DefinedRiskOptionSellingEngine:
                 )
 
         ranked = sorted(
-            structures,
+            [
+                item
+                for item in structures
+                if _regime_allows(
+                    regime,
+                    str(item.get("name")),
+                    pcr,
+                    bearish_pcr=float(self.config.get("bearish_pcr", 0.9)),
+                    bullish_pcr=float(self.config.get("bullish_pcr", 1.1)),
+                )
+            ],
             key=lambda item: (bool(item["risk_eligible"]), float(item["score"])),
             reverse=True,
         )
@@ -173,6 +189,7 @@ class DefinedRiskOptionSellingEngine:
             "underlying": underlying,
             "spot_price": round(float(spot_price), 2),
             "put_call_oi_ratio": round(pcr, 4),
+            "spot_regime": regime,
             "liquid_quotes": len(valid),
             "rejected_quotes": rejected,
             "selected": selected,
@@ -326,6 +343,7 @@ def validate_option_selling_config(
     structures = config.get("structures", [])
     if not isinstance(structures, list) or not structures or not set(structures) <= ALLOWED_STRUCTURES:
         raise ValueError("option_selling.structures contains an unsupported structure")
+    validate_spot_trend_config(config.get("spot_trend"), set(structures))
     _bounded_int(config, "chain_strikes_each_side", 4, 12, 6)
     _bounded_int(config, "wing_width_strikes", 1, 4, 2)
     _bounded_int(config, "minimum_expiry_days", 2, 5, 2)
@@ -362,6 +380,26 @@ def validate_option_selling_config(
 def _highest_oi(items) -> dict | None:
     values = list(items)
     return max(values, key=lambda item: float(item.get("open_interest", 0)), default=None)
+
+
+def _regime_allows(
+    regime: str | None,
+    structure: str,
+    put_call_oi_ratio: float,
+    *,
+    bearish_pcr: float,
+    bullish_pcr: float,
+) -> bool:
+    if regime is None:
+        return True
+    aligned = structure == {
+        "bullish": "bull_put_credit_spread",
+        "bearish": "bear_call_credit_spread",
+        "range": "iron_condor",
+    }.get(regime)
+    if regime == "range":
+        return aligned and bearish_pcr < put_call_oi_ratio < bullish_pcr
+    return aligned
 
 
 def _wing(strikes: list[float], strike: float, offset: int) -> float | None:
