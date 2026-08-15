@@ -194,8 +194,18 @@ class DefinedRiskOptionSellingEngine:
             "rejected_quotes": rejected,
             "selected": selected,
             "structures": ranked,
-            "paper_execution_allowed": False,
-            "reason": "Release 5.3 shadow mode blocks all option-selling orders",
+            "paper_execution_allowed": bool(
+                selected
+                and selected.get("risk_eligible") is True
+                and self.config.get("paper_execution_enabled") is True
+            ),
+            "reason": (
+                "Eligible for the isolated defined-risk paper simulator"
+                if selected
+                and selected.get("risk_eligible") is True
+                and self.config.get("paper_execution_enabled") is True
+                else "Option-selling execution remains blocked"
+            ),
             "risk_controls": {
                 "entry_start": self.config.get("entry_start", "09:30"),
                 "entry_end": self.config.get("entry_end", "14:30"),
@@ -302,6 +312,11 @@ class DefinedRiskOptionSellingEngine:
                     "price": item.get("best_bid") if side == "SELL" else item.get("best_ask"),
                     "open_interest": item.get("open_interest"),
                     "volume": item.get("volume"),
+                    "exchange": item.get("exchange"),
+                    "token": item.get("token"),
+                    "expiry": item.get("expiry"),
+                    "lot_size": item.get("lot_size"),
+                    "derivative_type": item.get("derivative_type"),
                 }
                 for side, item in legs
             ],
@@ -318,6 +333,7 @@ def validate_option_selling_config(
     config: object,
     derivatives_config: object | None = None,
     market_data_config: object | None = None,
+    paper_execution_config: object | None = None,
 ) -> None:
     if config is None:
         return
@@ -340,6 +356,23 @@ def validate_option_selling_config(
             raise ValueError(f"option_selling.{key} must remain true")
     if config.get("naked_short_options", False) is not False:
         raise ValueError("option_selling.naked_short_options must remain false")
+    if not isinstance(config.get("paper_execution_enabled", False), bool):
+        raise ValueError("option_selling.paper_execution_enabled must be a boolean")
+    paper_state_file = config.get("paper_state_file")
+    if config.get("paper_execution_enabled") is True and (
+        not isinstance(paper_state_file, str) or not paper_state_file.strip()
+    ):
+        raise ValueError("option_selling.paper_state_file is required for paper execution")
+    if config.get("paper_execution_enabled") is True and (
+        not isinstance(paper_execution_config, dict)
+        or paper_execution_config.get("enabled") is not True
+    ):
+        raise ValueError("option_selling paper execution requires enabled paper_execution")
+    if config.get("paper_execution_enabled") is True and not (
+        isinstance(config.get("spot_trend"), dict)
+        and config["spot_trend"].get("enabled") is True
+    ):
+        raise ValueError("option_selling paper execution requires the frozen spot_trend gate")
     structures = config.get("structures", [])
     if not isinstance(structures, list) or not structures or not set(structures) <= ALLOWED_STRUCTURES:
         raise ValueError("option_selling.structures contains an unsupported structure")
