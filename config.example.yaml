@@ -47,6 +47,8 @@ option_selling:
   enabled: false
   paper_only: true
   shadow_mode: true
+  paper_execution_enabled: false
+  paper_state_file: logs/option_paper_portfolio.json
   defined_risk_only: true
   naked_short_options: false
   structures:
