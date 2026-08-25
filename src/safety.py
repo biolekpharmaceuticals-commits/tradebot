@@ -123,6 +123,7 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
     from .broker import validate_paper_execution_config
     from .live_market import validate_dashboard_market_config
     from .option_selling import validate_option_selling_config
+    from .scalp_shadow import validate_scalp_shadow_config
 
     validate_market_data_config(market_data)
     try:
@@ -137,6 +138,7 @@ def load_safety_settings(raw: dict[str, Any]) -> SafetySettings:
             market_data,
             raw.get("paper_execution"),
         )
+        validate_scalp_shadow_config(raw.get("scalp_shadow"))
     except ValueError as exc:
         raise SafetyConfigError(str(exc)) from None
 

@@ -1,6 +1,6 @@
 # Angel One Paper Trading Agent
 
-This is a cautious Angel One SmartAPI trading agent. Release 5.2 can automatically fill and manage simulated paper orders, but it cannot submit live Angel One orders.
+This is a cautious Angel One SmartAPI trading agent. Release 5.7 can automatically fill and manage simulated paper orders, and Release 6 adds an isolated scalp-shadow research service. No release can submit live Angel One orders.
 
 ## What It Does
 
@@ -210,6 +210,52 @@ paper_execution:
   initial_balance: 300000
 risk:
   capital: 300000
+```
+
+## Release 6 Paper-Only Scalp Shadow
+
+Release 6 is a separate continuously running research service. It does not modify the Release 5.7 timer, option-selling strategy, paper portfolio, or decision log. It authenticates to Angel One for market data only, discovers the current nearest NIFTY futures contract at startup, and subscribes in SmartAPI WebSocket FULL mode to:
+
+- NIFTY 50 spot index token `99926000` for signals
+- The dynamically resolved nearest NIFTY futures token for simulated execution quotes
+
+The engine records timestamped ticks, rejects stale/future/out-of-order data, builds closed one-minute and five-minute bars, and generates a candidate only when both EMA trends align with a one-minute breakout and bounded ATR. Paper entry additionally requires a current futures bid/ask, bounded spread, market hours, environment-level auto-paper approval, inactive kill switch, daily limits, and a one-lot maximum loss within the configured risk budget.
+
+Release 6 is disabled by default. `live_order_enabled` must remain `false`; configuration validation rejects per-trade risk above `0.25%`, more than one open position, and any signal source other than NSE NIFTY 50. The scalp files are isolated under:
+
+```text
+logs/scalp_ticks/
+logs/scalp_decisions.jsonl
+logs/scalp_shadow_portfolio.json
+```
+
+Validate authentication and the resolved contract without starting the stream:
+
+```bash
+python run_scalp_shadow.py --config /etc/tradebot/config.yaml --prepare-only
+```
+
+Run the separate streaming service only after `scalp_shadow.enabled: true` is deliberately configured:
+
+```bash
+python run_scalp_shadow.py --config /etc/tradebot/config.yaml
+```
+
+After collecting tick data, replay one or more sessions through the same bar, signal, spread, risk, fee, slippage, stop, target, cooldown, and timeout logic:
+
+```bash
+python run_scalp_replay.py \
+  --config /etc/tradebot/config.yaml \
+  --ticks /opt/tradebot/logs/scalp_ticks/ticks-*.jsonl \
+  --output /opt/tradebot/logs/scalp-replay.json
+```
+
+The replay report includes the data range, tick count, trades, win/loss, return, profit factor, modeled fees, maximum drawdown, trade-level Sharpe/Sortino, exposure, data-quality counters, and full trade ledger. It is still a paper model and cannot reproduce exchange queue position, every partial fill, or institutional HFT latency.
+
+Inspect the recorder, safety flags, paper portfolio, tick freshness, and recent audit events without changing state:
+
+```bash
+python run_scalp_status.py --config /etc/tradebot/config.yaml --events 20
 ```
 
 ## Run Paper Trading Demo

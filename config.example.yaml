@@ -87,6 +87,52 @@ option_selling:
     maximum_volatility_pct: 35
     allow_range_condor: true
 
+scalp_shadow:
+  enabled: false
+  paper_only: true
+  shadow_mode: true
+  defined_risk_only: true
+  live_order_enabled: false
+  paper_execution_enabled: false
+  signal_instrument:
+    exchange: NSE
+    symbol: NIFTY 50
+    token: "99926000"
+  execution_instrument: nearest_nifty_future
+  execution_tick_size: 0.05
+  price_scale: 100
+  capital: 300000
+  risk_per_trade_pct: 0.25
+  max_daily_loss_pct: 0.5
+  max_trades_per_day: 8
+  stop_after_consecutive_losses: 3
+  max_open_positions: 1
+  max_spread_bps: 4
+  max_tick_age_ms: 2500
+  slippage_bps: 0.5
+  fee_bps: 0.25
+  stop_bps: 3
+  target_bps: 6
+  max_holding_seconds: 180
+  cooldown_seconds: 120
+  min_one_minute_bars: 20
+  min_five_minute_bars: 8
+  one_minute_ema_fast: 5
+  one_minute_ema_slow: 13
+  five_minute_ema_fast: 3
+  five_minute_ema_slow: 8
+  atr_period: 10
+  minimum_atr_bps: 2
+  maximum_atr_bps: 35
+  max_notional_to_capital_ratio: 6
+  entry_start: "09:20"
+  entry_end: "15:00"
+  force_exit: "15:10"
+  instrument_master_timeout_seconds: 10
+  state_file: logs/scalp_shadow_portfolio.json
+  tick_log_dir: logs/scalp_ticks
+  decision_log: logs/scalp_decisions.jsonl
+
 backtesting:
   enabled: false
   minimum_candles: 80

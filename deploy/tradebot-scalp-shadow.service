@@ -1,0 +1,25 @@
+[Unit]
+Description=Tradebot Release 6 paper-only scalp shadow
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=tradebot
+Group=tradebot
+WorkingDirectory=/opt/tradebot/app
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TRADEBOT_CONFIG=/etc/tradebot/config.yaml
+EnvironmentFile=/etc/tradebot/tradebot.env
+ExecStart=/opt/tradebot/venv/bin/python /opt/tradebot/app/run_scalp_shadow.py --config /etc/tradebot/config.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/tradebot/logs
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
