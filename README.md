@@ -241,6 +241,13 @@ Run the separate streaming service only after `scalp_shadow.enabled: true` is de
 python run_scalp_shadow.py --config /etc/tradebot/config.yaml
 ```
 
+The production unit is guarded to run only on weekdays from 09:15 through 15:30
+Asia/Kolkata. Enable `tradebot-scalp-shadow.timer` to start it at market open and
+`tradebot-scalp-shadow-stop.timer` to stop it at 15:31. Authentication failures are
+rate-limited to five starts per ten minutes, with at least 60 seconds between retries.
+Broker error codes are bounded and sanitized before logging; credentials and session
+tokens are never logged.
+
 After collecting tick data, replay one or more sessions through the same bar, signal, spread, risk, fee, slippage, stop, target, cooldown, and timeout logic:
 
 ```bash

@@ -1,0 +1,12 @@
+[Unit]
+Description=Start Tradebot Release 6 scalp shadow at NSE market open
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:15:00 Asia/Kolkata
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+Unit=tradebot-scalp-shadow.service
+
+[Install]
+WantedBy=timers.target

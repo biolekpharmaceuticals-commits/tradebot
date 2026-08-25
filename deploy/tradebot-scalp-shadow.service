@@ -2,6 +2,8 @@
 Description=Tradebot Release 6 paper-only scalp shadow
 Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -11,9 +13,11 @@ WorkingDirectory=/opt/tradebot/app
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=TRADEBOT_CONFIG=/etc/tradebot/config.yaml
 EnvironmentFile=/etc/tradebot/tradebot.env
+ExecCondition=/opt/tradebot/venv/bin/python /opt/tradebot/app/run_scalp_shadow.py --market-open-check
 ExecStart=/opt/tradebot/venv/bin/python /opt/tradebot/app/run_scalp_shadow.py --config /etc/tradebot/config.yaml
 Restart=on-failure
-RestartSec=5
+RestartSec=60
+TimeoutStopSec=20
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

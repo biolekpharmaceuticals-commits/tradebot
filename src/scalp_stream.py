@@ -123,13 +123,21 @@ class AngelOneScalpRuntime:
                     credentials["ANGEL_ONE_PIN"],
                     pyotp.TOTP(credentials["ANGEL_ONE_TOTP_SECRET"]).now(),
                 )
-            data = response.get("data") if isinstance(response, dict) else None
-            jwt_token = str((data or {}).get("jwtToken", ""))
-            feed_token = str(client.getfeedToken())
-        except Exception:
-            raise ScalpShadowError("Angel One scalp market-data authentication failed") from None
+        except Exception as exc:
+            raise ScalpShadowError(
+                f"Angel One scalp market-data authentication failed ({type(exc).__name__})"
+            ) from None
         if not isinstance(response, dict) or response.get("status") is not True:
-            raise ScalpShadowError("Angel One scalp market-data authentication failed")
+            detail = _sanitized_response_error(response)
+            raise ScalpShadowError(f"Angel One scalp market-data authentication failed ({detail})")
+        data = response.get("data")
+        jwt_token = str((data or {}).get("jwtToken", ""))
+        try:
+            feed_token = str(client.getfeedToken())
+        except Exception as exc:
+            raise ScalpShadowError(
+                f"Angel One scalp feed token was unavailable ({type(exc).__name__})"
+            ) from None
         if not jwt_token or not feed_token:
             raise ScalpShadowError("Angel One scalp stream credentials were unavailable")
         return client, jwt_token, feed_token
@@ -285,6 +293,17 @@ def _credentials() -> dict[str, str]:
     if missing:
         raise ScalpShadowError("Missing required Angel One scalp market-data environment variables")
     return {key: os.environ[key] for key in REQUIRED_ENV}
+
+
+def _sanitized_response_error(response: object) -> str:
+    if not isinstance(response, dict):
+        return "invalid response"
+    raw_code = str(response.get("errorcode") or "unknown")
+    code = "".join(
+        character if character.isalnum() or character in "-_" else "_"
+        for character in raw_code
+    )[:32]
+    return code or "unknown"
 
 
 def _smart_connect_factory(api_key: str):

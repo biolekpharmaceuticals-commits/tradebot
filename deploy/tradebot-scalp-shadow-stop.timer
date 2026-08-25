@@ -1,0 +1,12 @@
+[Unit]
+Description=Stop Tradebot Release 6 scalp shadow after NSE market close
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 15:31:00 Asia/Kolkata
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+Unit=tradebot-scalp-shadow-stop.service
+
+[Install]
+WantedBy=timers.target

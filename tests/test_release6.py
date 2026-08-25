@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from run_scalp_shadow import market_session_open
 from src.config import load_config
 from src.scalp_shadow import (
     Bar,
@@ -22,7 +23,7 @@ from src.scalp_shadow import (
     replay_ticks,
     validate_scalp_shadow_config,
 )
-from src.scalp_stream import parse_smartapi_tick
+from src.scalp_stream import _sanitized_response_error, parse_smartapi_tick
 
 KOLKATA = ZoneInfo("Asia/Kolkata")
 
@@ -248,6 +249,21 @@ def test_stream_parser_requires_timestamp_and_preserves_actual_depth():
         parse_smartapi_tick({"token": "123"}, instruments, received_at=now)
 
 
+def test_scalp_market_service_window_is_weekday_only():
+    assert market_session_open(datetime(2026, 8, 25, 9, 15, tzinfo=KOLKATA)) is True
+    assert market_session_open(datetime(2026, 8, 25, 15, 30, tzinfo=KOLKATA)) is True
+    assert market_session_open(datetime(2026, 8, 25, 15, 31, tzinfo=KOLKATA)) is False
+    assert market_session_open(datetime(2026, 8, 23, 10, 0, tzinfo=KOLKATA)) is False
+
+
+def test_sanitized_auth_error_is_bounded_and_single_line():
+    detail = _sanitized_response_error({"errorcode": "AB1234/<secret>" + "x" * 200})
+
+    assert detail.startswith("AB1234__secret_")
+    assert "\n" not in detail
+    assert len(detail) <= 32
+
+
 def test_engine_records_ticks_but_rejects_stale_data(tmp_path):
     now = [datetime(2026, 8, 24, 10, 0, tzinfo=KOLKATA)]
     engine = ScalpShadowEngine(
@@ -339,3 +355,17 @@ def test_service_is_isolated_from_release57_timer_and_agent():
     assert "run_agent.py" not in service
     assert "EnvironmentFile=/etc/tradebot/tradebot.env" in service
     assert "ReadWritePaths=/opt/tradebot/logs" in service
+    assert "--market-open-check" in service
+    assert "StartLimitIntervalSec=600" in service
+    assert "StartLimitBurst=5" in service
+    assert "RestartSec=60" in service
+    assert "TimeoutStopSec=20" in service
+
+    start_timer = (root / "deploy/tradebot-scalp-shadow.timer").read_text(encoding="utf-8")
+    stop_timer = (root / "deploy/tradebot-scalp-shadow-stop.timer").read_text(encoding="utf-8")
+    stop_service = (root / "deploy/tradebot-scalp-shadow-stop.service").read_text(
+        encoding="utf-8"
+    )
+    assert "09:15:00 Asia/Kolkata" in start_timer
+    assert "15:31:00 Asia/Kolkata" in stop_timer
+    assert "systemctl stop tradebot-scalp-shadow.service" in stop_service

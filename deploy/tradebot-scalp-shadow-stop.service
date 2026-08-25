@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop Tradebot Release 6 scalp shadow after NSE market close
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl stop tradebot-scalp-shadow.service
