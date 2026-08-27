@@ -1,5 +1,5 @@
 [Unit]
-Description=Stop Tradebot Release 6 scalp shadow after NSE market close
+Description=Stop Tradebot Release 6.1 scalp shadow after NSE market close
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 15:31:00 Asia/Kolkata

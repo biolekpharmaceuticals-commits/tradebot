@@ -1,5 +1,5 @@
 [Unit]
-Description=Start Tradebot Release 6 scalp shadow at NSE market open
+Description=Start Tradebot Release 6.1 scalp shadow at NSE market open
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 09:15:00 Asia/Kolkata

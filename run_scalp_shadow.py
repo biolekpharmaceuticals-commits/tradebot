@@ -22,7 +22,7 @@ def market_session_open(now: datetime) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Release 6 paper-only NIFTY futures scalp shadow")
+    parser = argparse.ArgumentParser(description="Release 6.1 cost-aware paper-only NIFTY futures scalp shadow")
     parser.add_argument("--config", default="config.example.yaml", help="Path to config YAML")
     parser.add_argument(
         "--prepare-only",

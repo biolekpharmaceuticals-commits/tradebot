@@ -7,11 +7,11 @@ from datetime import datetime
 from pathlib import Path
 
 from src.config import load_config
-from src.scalp_shadow import KOLKATA, Tick, load_scalp_shadow_settings
+from src.scalp_shadow import KOLKATA, SCALP_RELEASE, Tick, load_scalp_shadow_settings
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Read-only Release 6 scalp-shadow status")
+    parser = argparse.ArgumentParser(description="Read-only Release 6.1 scalp-shadow status")
     parser.add_argument("--config", default="config.example.yaml", help="Path to config YAML")
     parser.add_argument("--events", type=int, default=10, help="Number of recent audit events")
     args = parser.parse_args()
@@ -41,7 +41,7 @@ def main() -> None:
         json.dumps(
             {
                 "status": status,
-                "release": "6.0",
+                "release": SCALP_RELEASE,
                 "mode": "paper_shadow",
                 "live_orders_available": False,
                 "paper_execution_enabled": settings.paper_execution_enabled,

@@ -110,9 +110,24 @@ scalp_shadow:
   max_spread_bps: 4
   max_tick_age_ms: 2500
   slippage_bps: 0.5
-  fee_bps: 0.25
+  cost_model:
+    brokerage_per_order: 20
+    stt_sell_bps: 5
+    exchange_transaction_bps: 0.18299
+    sebi_turnover_bps: 0.01
+    stamp_duty_buy_bps: 0.2
+    gst_pct: 18
+    additional_fee_bps: 0
   stop_bps: 3
   target_bps: 6
+  breakout_lookback_bars: 5
+  stop_atr_multiplier: 0.75
+  target_atr_multiplier: 1.5
+  maximum_stop_bps: 12
+  maximum_target_bps: 24
+  minimum_net_reward_risk: 1.5
+  max_spread_to_stop_ratio: 0.25
+  gap_lockout_minutes: 5
   max_holding_seconds: 180
   cooldown_seconds: 120
   min_one_minute_bars: 20

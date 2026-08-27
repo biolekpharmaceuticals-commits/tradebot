@@ -5,12 +5,14 @@ import logging
 import os
 from collections.abc import Callable
 from contextlib import contextmanager
+from dataclasses import asdict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .config import AppConfig
 from .derivatives import AngelOneDerivativeDiscovery, DerivativeDiscoveryError
 from .scalp_shadow import (
+    SCALP_RELEASE,
     ScalpShadowEngine,
     ScalpShadowError,
     Tick,
@@ -88,11 +90,12 @@ class AngelOneScalpRuntime:
             feed_token,
         )
         manifest = {
-            "release": "6.0",
+            "release": SCALP_RELEASE,
             "mode": "paper_shadow",
             "prepared_at": self.clock().isoformat(),
             "signal_instrument": signal,
             "execution_contract": execution,
+            "cost_model": asdict(self.settings.cost_model),
             "paper_execution_enabled": self.settings.paper_execution_enabled,
             "live_orders_available": False,
         }
@@ -191,7 +194,7 @@ class AngelOneScalpRuntime:
             {"exchangeType": exchange_type, "tokens": tokens}
             for exchange_type, tokens in sorted(token_groups.items())
         ]
-        correlation_id = "release-6-scalp-shadow"
+        correlation_id = "release-6.1-scalp-shadow"
         mode = 3  # FULL mode is required for execution bid/ask validation.
         if self.websocket is None:
             raise ScalpShadowError("Scalp WebSocket was unavailable during subscription")

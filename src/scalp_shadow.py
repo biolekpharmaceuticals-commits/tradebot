@@ -7,15 +7,16 @@ import uuid
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 KOLKATA = ZoneInfo("Asia/Kolkata")
+SCALP_RELEASE = "6.1"
 
 
 class ScalpShadowError(RuntimeError):
-    """Raised when the Release 6 scalp-shadow path must fail closed."""
+    """Raised when the Release 6.1 scalp-shadow path must fail closed."""
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,45 @@ class ScalpSignal:
 
 
 @dataclass(frozen=True)
+class FuturesCostModel:
+    """Configurable one-order-per-leg NSE equity-futures cost model.
+
+    Rates are expressed in basis points of leg turnover. GST is expressed
+    as a percentage and applies to brokerage, exchange, and SEBI charges.
+    """
+
+    brokerage_per_order: float
+    stt_sell_bps: float
+    exchange_transaction_bps: float
+    sebi_turnover_bps: float
+    stamp_duty_buy_bps: float
+    gst_pct: float
+    additional_fee_bps: float
+
+    def leg(self, price: float, quantity: int, side: str) -> dict[str, float]:
+        turnover = price * quantity
+        brokerage = self.brokerage_per_order
+        exchange = turnover * self.exchange_transaction_bps / 10000
+        sebi = turnover * self.sebi_turnover_bps / 10000
+        gst = (brokerage + exchange + sebi) * self.gst_pct / 100
+        stt = turnover * self.stt_sell_bps / 10000 if side == "SELL" else 0.0
+        stamp = turnover * self.stamp_duty_buy_bps / 10000 if side == "BUY" else 0.0
+        additional = turnover * self.additional_fee_bps / 10000
+        total = brokerage + exchange + sebi + gst + stt + stamp + additional
+        return {
+            "turnover": round(turnover, 2),
+            "brokerage": round(brokerage, 2),
+            "exchange_transaction_charge": round(exchange, 2),
+            "sebi_turnover_charge": round(sebi, 2),
+            "gst": round(gst, 2),
+            "stt": round(stt, 2),
+            "stamp_duty": round(stamp, 2),
+            "additional_fee": round(additional, 2),
+            "total": round(total, 2),
+        }
+
+
+@dataclass(frozen=True)
 class ScalpShadowSettings:
     enabled: bool
     paper_execution_enabled: bool
@@ -104,9 +144,17 @@ class ScalpShadowSettings:
     max_spread_bps: float
     max_tick_age_ms: int
     slippage_bps: float
-    fee_bps: float
+    cost_model: FuturesCostModel
     stop_bps: float
     target_bps: float
+    breakout_lookback_bars: int
+    stop_atr_multiplier: float
+    target_atr_multiplier: float
+    maximum_stop_bps: float
+    maximum_target_bps: float
+    minimum_net_reward_risk: float
+    max_spread_to_stop_ratio: float
+    gap_lockout_minutes: int
     max_holding_seconds: int
     cooldown_seconds: int
     min_one_minute_bars: int
@@ -135,6 +183,16 @@ def load_scalp_shadow_settings(config: object, base_dir: Path) -> ScalpShadowSet
         return configured if configured.is_absolute() else base_dir / configured
 
     signal = dict(values.get("signal_instrument") or {})
+    costs = dict(values.get("cost_model") or {})
+    cost_model = FuturesCostModel(
+        brokerage_per_order=float(costs.get("brokerage_per_order", 20)),
+        stt_sell_bps=float(costs.get("stt_sell_bps", 5)),
+        exchange_transaction_bps=float(costs.get("exchange_transaction_bps", 0.18299)),
+        sebi_turnover_bps=float(costs.get("sebi_turnover_bps", 0.01)),
+        stamp_duty_buy_bps=float(costs.get("stamp_duty_buy_bps", 0.2)),
+        gst_pct=float(costs.get("gst_pct", 18)),
+        additional_fee_bps=float(costs.get("additional_fee_bps", values.get("fee_bps", 0))),
+    )
     return ScalpShadowSettings(
         enabled=bool(values.get("enabled", False)),
         paper_execution_enabled=bool(values.get("paper_execution_enabled", False)),
@@ -148,9 +206,17 @@ def load_scalp_shadow_settings(config: object, base_dir: Path) -> ScalpShadowSet
         max_spread_bps=float(values.get("max_spread_bps", 4)),
         max_tick_age_ms=int(values.get("max_tick_age_ms", 2500)),
         slippage_bps=float(values.get("slippage_bps", 0.5)),
-        fee_bps=float(values.get("fee_bps", 0.25)),
+        cost_model=cost_model,
         stop_bps=float(values.get("stop_bps", 3)),
         target_bps=float(values.get("target_bps", 6)),
+        breakout_lookback_bars=int(values.get("breakout_lookback_bars", 5)),
+        stop_atr_multiplier=float(values.get("stop_atr_multiplier", 0.75)),
+        target_atr_multiplier=float(values.get("target_atr_multiplier", 1.5)),
+        maximum_stop_bps=float(values.get("maximum_stop_bps", 12)),
+        maximum_target_bps=float(values.get("maximum_target_bps", 24)),
+        minimum_net_reward_risk=float(values.get("minimum_net_reward_risk", 1.5)),
+        max_spread_to_stop_ratio=float(values.get("max_spread_to_stop_ratio", 0.25)),
+        gap_lockout_minutes=int(values.get("gap_lockout_minutes", 5)),
         max_holding_seconds=int(values.get("max_holding_seconds", 180)),
         cooldown_seconds=int(values.get("cooldown_seconds", 120)),
         min_one_minute_bars=int(values.get("min_one_minute_bars", 20)),
@@ -195,9 +261,9 @@ def validate_scalp_shadow_config(config: object) -> dict:
         expected = {"exchange": "NSE", "symbol": "NIFTY 50", "token": "99926000"}
         for key, value in expected.items():
             if str(signal.get(key, "")).strip().upper() != value.upper():
-                raise ValueError("Release 6 signal instrument must remain NSE NIFTY 50 token 99926000")
+                raise ValueError("Release 6.1 signal instrument must remain NSE NIFTY 50 token 99926000")
         if config.get("execution_instrument", "nearest_nifty_future") != "nearest_nifty_future":
-            raise ValueError("Release 6 supports only dynamically resolved nearest NIFTY futures")
+            raise ValueError("Release 6.1 supports only dynamically resolved nearest NIFTY futures")
 
     _number(config, "capital", 100000, 10000000, 300000)
     _number(config, "risk_per_trade_pct", 0.05, 0.25, 0.25)
@@ -209,11 +275,37 @@ def validate_scalp_shadow_config(config: object) -> dict:
     _number(config, "max_spread_bps", 0.5, 10, 4)
     _integer(config, "max_tick_age_ms", 250, 5000, 2500)
     _number(config, "slippage_bps", 0, 5, 0.5)
-    _number(config, "fee_bps", 0, 5, 0.25)
+    _number(config, "fee_bps", 0, 5, 0)
     _number(config, "stop_bps", 2, 20, 3)
     _number(config, "target_bps", 2, 40, 6)
     if float(config.get("target_bps", 6)) < float(config.get("stop_bps", 3)) * 1.5:
         raise ValueError("scalp_shadow target_bps must be at least 1.5 times stop_bps")
+    _integer(config, "breakout_lookback_bars", 2, 20, 5)
+    _number(config, "stop_atr_multiplier", 0.1, 5, 0.75)
+    _number(config, "target_atr_multiplier", 0.2, 10, 1.5)
+    _number(config, "maximum_stop_bps", 2, 40, 12)
+    _number(config, "maximum_target_bps", 3, 80, 24)
+    if float(config.get("maximum_stop_bps", 12)) < float(config.get("stop_bps", 3)):
+        raise ValueError("scalp_shadow maximum_stop_bps must be at least stop_bps")
+    if float(config.get("maximum_target_bps", 24)) < float(config.get("target_bps", 6)):
+        raise ValueError("scalp_shadow maximum_target_bps must be at least target_bps")
+    if float(config.get("maximum_target_bps", 24)) < float(config.get("maximum_stop_bps", 12)) * 1.5:
+        raise ValueError("scalp_shadow maximum_target_bps must cover 1.5 times maximum_stop_bps")
+    _number(config, "minimum_net_reward_risk", 1, 5, 1.5)
+    _number(config, "max_spread_to_stop_ratio", 0.05, 0.5, 0.25)
+    _integer(config, "gap_lockout_minutes", 1, 30, 5)
+
+    costs = config.get("cost_model", {})
+    if costs is not None and not isinstance(costs, dict):
+        raise ValueError("scalp_shadow.cost_model must be a mapping")
+    costs = costs or {}
+    _number(costs, "brokerage_per_order", 0, 100, 20)
+    _number(costs, "stt_sell_bps", 0, 20, 5)
+    _number(costs, "exchange_transaction_bps", 0, 5, 0.18299)
+    _number(costs, "sebi_turnover_bps", 0, 1, 0.01)
+    _number(costs, "stamp_duty_buy_bps", 0, 5, 0.2)
+    _number(costs, "gst_pct", 0, 30, 18)
+    _number(costs, "additional_fee_bps", 0, 5, float(config.get("fee_bps", 0)))
     _integer(config, "max_holding_seconds", 30, 600, 180)
     _integer(config, "cooldown_seconds", 30, 900, 120)
     _integer(config, "min_one_minute_bars", 15, 120, 20)
@@ -312,7 +404,11 @@ class MultiTimeframeScalpStrategy:
     def evaluate(self, bars: MultiTimeframeBars, now: datetime) -> ScalpSignal | None:
         one = bars.bars(60)
         five = bars.bars(300)
-        if len(one) < self.settings.min_one_minute_bars:
+        required_one = max(
+            self.settings.min_one_minute_bars,
+            self.settings.breakout_lookback_bars + 1,
+        )
+        if len(one) < required_one:
             return None
         if len(five) < self.settings.min_five_minute_bars:
             return None
@@ -330,13 +426,31 @@ class MultiTimeframeScalpStrategy:
         if not self.settings.minimum_atr_bps <= atr_bps <= self.settings.maximum_atr_bps:
             return None
 
-        latest, previous = one[-1], one[-2]
+        latest = one[-1]
+        breakout_window = one[-self.settings.breakout_lookback_bars - 1 : -1]
+        breakout_high = max(bar.high for bar in breakout_window)
+        breakout_low = min(bar.low for bar in breakout_window)
         direction = None
-        if one_fast > one_slow and five_fast > five_slow and latest.close > previous.high:
+        if one_fast > one_slow and five_fast > five_slow and latest.close > breakout_high:
             direction = "BUY"
-        elif one_fast < one_slow and five_fast < five_slow and latest.close < previous.low:
+        elif one_fast < one_slow and five_fast < five_slow and latest.close < breakout_low:
             direction = "SELL"
         if direction is None:
+            return None
+
+        stop_bps = min(
+            self.settings.maximum_stop_bps,
+            max(self.settings.stop_bps, atr_bps * self.settings.stop_atr_multiplier),
+        )
+        target_bps = min(
+            self.settings.maximum_target_bps,
+            max(
+                self.settings.target_bps,
+                stop_bps * 1.5,
+                atr_bps * self.settings.target_atr_multiplier,
+            ),
+        )
+        if target_bps < stop_bps * 1.5:
             return None
 
         self.last_signal_at = now
@@ -345,12 +459,13 @@ class MultiTimeframeScalpStrategy:
             direction=direction,
             generated_at=now,
             signal_price=latest.close,
-            stop_bps=self.settings.stop_bps,
-            target_bps=self.settings.target_bps,
+            stop_bps=round(stop_bps, 4),
+            target_bps=round(target_bps, 4),
             reason=(
                 f"1m EMA {self.settings.one_minute_ema_fast}/{self.settings.one_minute_ema_slow} "
                 f"and 5m EMA {self.settings.five_minute_ema_fast}/{self.settings.five_minute_ema_slow} "
-                f"aligned with one-minute breakout; ATR {atr_bps:.2f} bps"
+                f"aligned with {self.settings.breakout_lookback_bars}-bar one-minute breakout; "
+                f"ATR {atr_bps:.2f} bps; stop {stop_bps:.2f} bps; target {target_bps:.2f} bps"
             ),
         )
 
@@ -375,7 +490,7 @@ class ScalpAuditLog:
     def write(self, event: str, payload: dict) -> None:
         record = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "release": "6.0",
+            "release": SCALP_RELEASE,
             "mode": "scalp_shadow_paper",
             "event": event,
             **payload,
@@ -416,11 +531,12 @@ class ScalpPaperBroker:
         )
         stop = _round_tick(stop, quote.tick_size)
         target = _round_tick(target, quote.tick_size)
-        entry_fee = fill * quantity * self.settings.fee_bps / 10000
-        estimated_exit_fee = stop * quantity * self.settings.fee_bps / 10000
+        entry_costs = self.settings.cost_model.leg(fill, quantity, side)
+        entry_fee = float(entry_costs["total"])
         risk_exit_side = "SELL" if side == "BUY" else "BUY"
         risk_exit = _adverse_price(stop, risk_exit_side, self.settings.slippage_bps, quote.tick_size)
-        estimated_exit_fee = risk_exit * quantity * self.settings.fee_bps / 10000
+        risk_exit_costs = self.settings.cost_model.leg(risk_exit, quantity, risk_exit_side)
+        estimated_exit_fee = float(risk_exit_costs["total"])
         maximum_loss = abs(fill - risk_exit) * quantity + entry_fee + estimated_exit_fee
         risk_budget = self.settings.capital * self.settings.risk_per_trade_pct / 100
         if maximum_loss > risk_budget:
@@ -429,6 +545,38 @@ class ScalpPaperBroker:
                 "reason": "One-lot maximum loss exceeds scalp risk budget",
                 "maximum_loss": round(maximum_loss, 2),
                 "risk_budget": round(risk_budget, 2),
+                "entry_costs": entry_costs,
+                "risk_exit_costs": risk_exit_costs,
+                "signal_id": signal.signal_id,
+            }
+
+        target_exit = _adverse_price(target, risk_exit_side, self.settings.slippage_bps, quote.tick_size)
+        target_exit_costs = self.settings.cost_model.leg(target_exit, quantity, risk_exit_side)
+        gross_target = (
+            (target_exit - fill) * quantity
+            if side == "BUY"
+            else (fill - target_exit) * quantity
+        )
+        net_target = gross_target - entry_fee - float(target_exit_costs["total"])
+        net_reward_risk = net_target / maximum_loss if maximum_loss > 0 else 0.0
+        if net_target <= 0:
+            return {
+                "accepted": False,
+                "reason": "Target is not profitable after modeled futures costs",
+                "net_target_pnl": round(net_target, 2),
+                "maximum_loss": round(maximum_loss, 2),
+                "entry_costs": entry_costs,
+                "target_exit_costs": target_exit_costs,
+                "signal_id": signal.signal_id,
+            }
+        if net_reward_risk < self.settings.minimum_net_reward_risk:
+            return {
+                "accepted": False,
+                "reason": "Net reward-to-risk is below the scalp minimum",
+                "net_target_pnl": round(net_target, 2),
+                "maximum_loss": round(maximum_loss, 2),
+                "net_reward_risk": round(net_reward_risk, 4),
+                "minimum_net_reward_risk": self.settings.minimum_net_reward_risk,
                 "signal_id": signal.signal_id,
             }
         notional = fill * quantity
@@ -467,9 +615,12 @@ class ScalpPaperBroker:
             "entry_price": round(fill, 4),
             "entry_time": now.isoformat(),
             "entry_fee": round(entry_fee, 2),
+            "entry_costs": entry_costs,
             "stop_price": stop,
             "target_price": target,
             "maximum_loss": round(maximum_loss, 2),
+            "net_target_pnl": round(net_target, 2),
+            "net_reward_risk": round(net_reward_risk, 4),
             "last_price": quote.last_price,
             "unrealized_pnl": -round(entry_fee, 2),
         }
@@ -489,13 +640,28 @@ class ScalpPaperBroker:
         exit_reference = quote.bid if side == "BUY" else quote.ask
         if exit_reference <= 0:
             return None
+        exit_side = "SELL" if side == "BUY" else "BUY"
+        marked_exit = _adverse_price(
+            exit_reference,
+            exit_side,
+            self.settings.slippage_bps,
+            quote.tick_size,
+        )
         gross = (
-            (exit_reference - float(position["entry_price"])) * int(position["quantity"])
+            (marked_exit - float(position["entry_price"])) * int(position["quantity"])
             if side == "BUY"
-            else (float(position["entry_price"]) - exit_reference) * int(position["quantity"])
+            else (float(position["entry_price"]) - marked_exit) * int(position["quantity"])
+        )
+        estimated_exit_costs = self.settings.cost_model.leg(
+            marked_exit,
+            int(position["quantity"]),
+            exit_side,
         )
         position["last_price"] = quote.last_price
-        position["unrealized_pnl"] = round(gross - float(position["entry_fee"]), 2)
+        position["unrealized_pnl"] = round(
+            gross - float(position["entry_fee"]) - float(estimated_exit_costs["total"]),
+            2,
+        )
 
         exit_reason = reason
         if exit_reason is None:
@@ -539,7 +705,11 @@ class ScalpPaperBroker:
             return "Duplicate scalp signal"
         if now.weekday() >= 5 or not self.settings.entry_start <= now.time().replace(tzinfo=None) <= self.settings.entry_end:
             return "Scalp entry is outside the configured market window"
-        if quote.bid <= 0 or quote.ask < quote.bid or quote.spread_bps > self.settings.max_spread_bps:
+        allowed_spread = min(
+            self.settings.max_spread_bps,
+            signal.stop_bps * self.settings.max_spread_to_stop_ratio,
+        )
+        if quote.bid <= 0 or quote.ask < quote.bid or quote.spread_bps > allowed_spread:
             return "Execution quote spread is missing or too wide"
         today = now.date().isoformat()
         trades_today = [trade for trade in self.state["trades"] if str(trade["exit_time"]).startswith(today)]
@@ -578,13 +748,15 @@ class ScalpPaperBroker:
             if position["side"] == "BUY"
             else (float(position["entry_price"]) - fill) * quantity
         )
-        exit_fee = fill * quantity * self.settings.fee_bps / 10000
+        exit_costs = self.settings.cost_model.leg(fill, quantity, exit_side)
+        exit_fee = float(exit_costs["total"])
         net = round(gross - float(position["entry_fee"]) - exit_fee, 2)
         trade = {
             **position,
             "exit_price": round(fill, 4),
             "exit_time": now.isoformat(),
             "exit_fee": round(exit_fee, 2),
+            "exit_costs": exit_costs,
             "gross_pnl": round(gross, 2),
             "net_pnl": net,
             "exit_reason": reason,
@@ -652,7 +824,11 @@ class ScalpShadowEngine:
         self.last_tick_at: datetime | None = None
         self.last_signal_tick_at: datetime | None = None
         self.last_execution_tick_at: datetime | None = None
+        self.last_execution_exchange_at: datetime | None = None
         self.rejected_stale_ticks = 0
+        self.rejected_out_of_order_execution_ticks = 0
+        self.gap_lockout_until: datetime | None = None
+        self.entry_rejection_counts: dict[str, int] = {}
 
     def on_tick(self, tick: Tick) -> None:
         if self.record_ticks:
@@ -665,6 +841,18 @@ class ScalpShadowEngine:
         self.last_tick_at = tick.received_at
 
         if tick.role == "execution" and tick.token == self.execution_token:
+            if self.last_execution_exchange_at is not None and tick.timestamp < self.last_execution_exchange_at:
+                self.rejected_out_of_order_execution_ticks += 1
+                self.audit.write(
+                    "tick_rejected",
+                    {
+                        "symbol": tick.symbol,
+                        "reason": "out_of_order_execution_tick",
+                        "exchange_timestamp": tick.timestamp.isoformat(),
+                    },
+                )
+                return
+            self.last_execution_exchange_at = tick.timestamp
             self.last_execution_tick_at = tick.received_at
             self.latest_execution_tick = tick
             exit_order = self.broker.mark(tick)
@@ -675,8 +863,27 @@ class ScalpShadowEngine:
             return
         self.last_signal_tick_at = tick.received_at
 
+        previous_gap_count = self.bars.gap_count
         closed = self.bars.on_tick(tick)
+        if self.bars.gap_count > previous_gap_count:
+            self.gap_lockout_until = tick.timestamp + timedelta(minutes=self.settings.gap_lockout_minutes)
+            self.audit.write(
+                "bar_gap_lockout",
+                {
+                    "gap_count": self.bars.gap_count,
+                    "lockout_until": self.gap_lockout_until.isoformat(),
+                },
+            )
         if 60 not in closed:
+            return
+        if self.gap_lockout_until is not None and tick.timestamp < self.gap_lockout_until:
+            self.audit.write(
+                "signal_evaluation_blocked",
+                {
+                    "reason": "post_gap_lockout",
+                    "lockout_until": self.gap_lockout_until.isoformat(),
+                },
+            )
             return
         signal = self.strategy.evaluate(self.bars, tick.timestamp)
         if signal is None:
@@ -702,6 +909,9 @@ class ScalpShadowEngine:
             self.audit.write("paper_entry_blocked", {**payload, "reason": "execution_quote_stale", "age_ms": round(quote_age, 2)})
             return
         order = self.broker.place(signal, quote)
+        if not order.get("accepted"):
+            reason = str(order.get("reason", "unknown"))
+            self.entry_rejection_counts[reason] = self.entry_rejection_counts.get(reason, 0) + 1
         self.audit.write("paper_entry" if order.get("accepted") else "paper_entry_rejected", order)
 
     def health(self) -> dict:
@@ -713,7 +923,7 @@ class ScalpShadowEngine:
         )
         return {
             "status": "stale" if stale else "ok",
-            "release": "6.0",
+            "release": SCALP_RELEASE,
             "mode": "paper_shadow",
             "live_orders_available": False,
             "paper_execution_enabled": self.settings.paper_execution_enabled,
@@ -725,10 +935,16 @@ class ScalpShadowEngine:
                 self.last_execution_tick_at.isoformat() if self.last_execution_tick_at else None
             ),
             "rejected_stale_ticks": self.rejected_stale_ticks,
+            "rejected_out_of_order_execution_ticks": self.rejected_out_of_order_execution_ticks,
             "one_minute_bars": len(self.bars.bars(60)),
             "five_minute_bars": len(self.bars.bars(300)),
             "bar_gaps": self.bars.gap_count,
             "out_of_order_ticks": self.bars.out_of_order_count,
+            "gap_lockout_until": (
+                self.gap_lockout_until.isoformat() if self.gap_lockout_until else None
+            ),
+            "entry_rejection_counts": dict(self.entry_rejection_counts),
+            "cost_model": asdict(self.settings.cost_model),
             "portfolio": self.broker.snapshot(),
         }
 
@@ -764,12 +980,13 @@ def replay_ticks(
     gross_loss = abs(sum(min(0.0, float(trade["net_pnl"])) for trade in trades))
     performance = _replay_performance(trades, float(snapshot["initial_balance"]), first, last)
     return {
-        "release": "6.0",
+        "release": SCALP_RELEASE,
         "mode": "tick_replay_paper",
         "ticks": count,
         "period_start": first.isoformat() if first else None,
         "period_end": last.isoformat() if last else None,
         "initial_balance": snapshot["initial_balance"],
+        "cost_model": asdict(engine.settings.cost_model),
         "ending_balance": snapshot["balance"],
         "net_pnl": snapshot["realized_pnl"],
         "net_return_pct": round(snapshot["realized_pnl"] / snapshot["initial_balance"] * 100, 4),

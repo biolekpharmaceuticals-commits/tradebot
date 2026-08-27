@@ -1,6 +1,6 @@
 # Angel One Paper Trading Agent
 
-This is a cautious Angel One SmartAPI trading agent. Release 5.7 can automatically fill and manage simulated paper orders, and Release 6 adds an isolated scalp-shadow research service. No release can submit live Angel One orders.
+This is a cautious Angel One SmartAPI trading agent. Release 5.7 can automatically fill and manage simulated paper orders, Release 6 adds an isolated scalp-shadow research service, and Release 6.1 makes that research cost-aware. No release can submit live Angel One orders.
 
 ## What It Does
 
@@ -212,16 +212,20 @@ risk:
   capital: 300000
 ```
 
-## Release 6 Paper-Only Scalp Shadow
+## Release 6.1 Cost-Aware Paper-Only Scalp Shadow
 
-Release 6 is a separate continuously running research service. It does not modify the Release 5.7 timer, option-selling strategy, paper portfolio, or decision log. It authenticates to Angel One for market data only, discovers the current nearest NIFTY futures contract at startup, and subscribes in SmartAPI WebSocket FULL mode to:
+Release 6.1 is a separate continuously running research service. It does not modify the Release 5.7 timer, option-selling strategy, paper portfolio, or decision log. It authenticates to Angel One for market data only, discovers the current nearest NIFTY futures contract at startup, and subscribes in SmartAPI WebSocket FULL mode to:
 
 - NIFTY 50 spot index token `99926000` for signals
 - The dynamically resolved nearest NIFTY futures token for simulated execution quotes
 
-The engine records timestamped ticks, rejects stale/future/out-of-order data, builds closed one-minute and five-minute bars, and generates a candidate only when both EMA trends align with a one-minute breakout and bounded ATR. Paper entry additionally requires a current futures bid/ask, bounded spread, market hours, environment-level auto-paper approval, inactive kill switch, daily limits, and a one-lot maximum loss within the configured risk budget.
+The engine records timestamped ticks, rejects stale/future/out-of-order data, builds closed one-minute and five-minute bars, and generates a candidate only when both EMA trends align with a configurable multi-bar one-minute breakout and bounded ATR. Stops and targets scale with ATR inside hard bounds. A detected bar gap blocks signal evaluation for a configurable recovery window.
 
-Release 6 is disabled by default. `live_order_enabled` must remain `false`; configuration validation rejects per-trade risk above `0.25%`, more than one open position, and any signal source other than NSE NIFTY 50. The scalp files are isolated under:
+Paper entry additionally requires a current ordered futures bid/ask, a spread small relative to the stop, market hours, environment-level auto-paper approval, inactive kill switch, daily limits, a positive target after all modeled costs, the configured minimum net reward-to-risk ratio, and a one-lot maximum loss within the configured risk budget.
+
+The default equity-futures cost model is explicit and asymmetric: per-order brokerage, sell-side STT, exchange transaction charges, SEBI turnover fees, buy-side stamp duty, GST, and an optional additional fee buffer. Rates are configuration, not hidden constants, so they can be updated when official charges change. Under the August 2026 defaults, a one-lot NIFTY future may be rejected because statutory costs alone can consume the `0.25%` per-trade budget. This is an intended fail-closed result, not a reason to raise the safety limit.
+
+Release 6.1 is disabled by default. `live_order_enabled` must remain `false`; configuration validation rejects per-trade risk above `0.25%`, more than one open position, and any signal source other than NSE NIFTY 50. The scalp files are isolated under:
 
 ```text
 logs/scalp_ticks/

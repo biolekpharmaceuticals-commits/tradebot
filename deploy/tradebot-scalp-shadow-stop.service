@@ -1,5 +1,5 @@
 [Unit]
-Description=Stop Tradebot Release 6 scalp shadow after NSE market close
+Description=Stop Tradebot Release 6.1 scalp shadow after NSE market close
 
 [Service]
 Type=oneshot

@@ -42,6 +42,15 @@ def settings(tmp_path: Path, **overrides):
             "token": "99926000",
         },
         "execution_instrument": "nearest_nifty_future",
+        "cost_model": {
+            "brokerage_per_order": 0,
+            "stt_sell_bps": 0,
+            "exchange_transaction_bps": 0,
+            "sebi_turnover_bps": 0,
+            "stamp_duty_buy_bps": 0,
+            "gst_pct": 0,
+            "additional_fee_bps": 0,
+        },
         "state_file": str(tmp_path / "scalp-state.json"),
         "tick_log_dir": str(tmp_path / "ticks"),
         "decision_log": str(tmp_path / "scalp-decisions.jsonl"),
@@ -166,6 +175,9 @@ def test_strategy_requires_aligned_one_and_five_minute_breakout(tmp_path):
     assert result is not None
     assert result.direction == "BUY"
     assert "5m EMA" in result.reason
+    assert "5-bar" in result.reason
+    assert result.stop_bps > configured.stop_bps
+    assert result.target_bps >= result.stop_bps * 1.5
 
 
 def test_paper_broker_persists_one_lot_entry_and_target_exit(tmp_path):
@@ -211,12 +223,102 @@ def test_paper_broker_rejects_wide_spread_duplicate_and_excess_risk(tmp_path):
     assert "risk budget" in constrained.place(signal(now), normal)["reason"]
 
     exposure_broker = ScalpPaperBroker(
-        replace(settings(tmp_path / "exposure"), slippage_bps=0, fee_bps=0, stop_bps=2, target_bps=3),
+        replace(settings(tmp_path / "exposure"), slippage_bps=0, stop_bps=2, target_bps=3),
         clock=lambda: now,
     )
     oversized = replace(normal, last_price=28000, bid=27999.5, ask=28000, lot_size=65)
     narrow_signal = replace(signal(now + timedelta(seconds=1)), stop_bps=2, target_bps=3)
     assert "exposure cap" in exposure_broker.place(narrow_signal, oversized)["reason"]
+
+
+def test_current_futures_costs_reject_one_lot_within_quarter_percent_budget(tmp_path):
+    now = datetime(2026, 8, 27, 13, 0, tzinfo=KOLKATA)
+    configured = settings(
+        tmp_path,
+        cost_model={
+            "brokerage_per_order": 20,
+            "stt_sell_bps": 5,
+            "exchange_transaction_bps": 0.18299,
+            "sebi_turnover_bps": 0.01,
+            "stamp_duty_buy_bps": 0.2,
+            "gst_pct": 18,
+            "additional_fee_bps": 0,
+        },
+    )
+    broker = ScalpPaperBroker(configured, clock=lambda: now)
+    quote = tick(
+        now,
+        role="execution",
+        token="FUT1",
+        symbol="NIFTY29SEP26FUT",
+        price=24364,
+        bid=24363.5,
+        ask=24364,
+        lot_size=65,
+    )
+
+    rejected = broker.place(signal(now), quote)
+
+    assert rejected["accepted"] is False
+    assert "risk budget" in rejected["reason"]
+    assert rejected["maximum_loss"] > 1490
+    assert rejected["risk_budget"] == 750
+    assert rejected["entry_costs"]["stamp_duty"] > 0
+    assert rejected["risk_exit_costs"]["stt"] > 790
+
+
+def test_six_bps_target_is_rejected_when_net_of_current_costs(tmp_path):
+    now = datetime(2026, 8, 27, 13, 0, tzinfo=KOLKATA)
+    configured = settings(
+        tmp_path,
+        capital=10_000_000,
+        cost_model={
+            "brokerage_per_order": 20,
+            "stt_sell_bps": 5,
+            "exchange_transaction_bps": 0.18299,
+            "sebi_turnover_bps": 0.01,
+            "stamp_duty_buy_bps": 0.2,
+            "gst_pct": 18,
+            "additional_fee_bps": 0,
+        },
+    )
+    broker = ScalpPaperBroker(configured, clock=lambda: now)
+    quote = tick(
+        now,
+        role="execution",
+        token="FUT1",
+        symbol="NIFTY29SEP26FUT",
+        price=24364,
+        bid=24363.5,
+        ask=24364,
+        lot_size=65,
+    )
+
+    rejected = broker.place(signal(now), quote)
+
+    assert rejected["accepted"] is False
+    assert "not profitable" in rejected["reason"]
+    assert rejected["net_target_pnl"] < 0
+
+
+def test_spread_must_be_small_relative_to_stop(tmp_path):
+    now = datetime(2026, 8, 27, 13, 0, tzinfo=KOLKATA)
+    broker = ScalpPaperBroker(settings(tmp_path), clock=lambda: now)
+    quote = tick(
+        now,
+        role="execution",
+        token="FUT1",
+        symbol="NIFTY29SEP26FUT",
+        price=24000,
+        bid=23998,
+        ask=24000,
+        lot_size=65,
+    )
+
+    rejected = broker.place(signal(now), quote)
+
+    assert rejected["accepted"] is False
+    assert "spread" in rejected["reason"]
 
 
 def test_stream_parser_requires_timestamp_and_preserves_actual_depth():
@@ -281,6 +383,49 @@ def test_engine_records_ticks_but_rejects_stale_data(tmp_path):
     recorded = next((tmp_path / "ticks").glob("*.jsonl"))
     assert json.loads(recorded.read_text(encoding="utf-8"))["token"] == "99926000"
     assert stat.S_IMODE(recorded.stat().st_mode) == 0o600
+
+
+def test_engine_locks_signal_evaluation_after_bar_gap(tmp_path):
+    now = [datetime(2026, 8, 24, 10, 0, tzinfo=KOLKATA)]
+    engine = ScalpShadowEngine(
+        settings(tmp_path),
+        execution_token="FUT1",
+        kill_switch_active=False,
+        auto_paper_enabled=True,
+        clock=lambda: now[0],
+        record_ticks=False,
+    )
+    engine.on_tick(tick(now[0]))
+    now[0] += timedelta(minutes=2)
+    engine.on_tick(tick(now[0]))
+
+    health = engine.health()
+
+    assert health["bar_gaps"] >= 1
+    assert health["gap_lockout_until"] is not None
+
+
+def test_engine_rejects_out_of_order_execution_quotes(tmp_path):
+    now = datetime(2026, 8, 24, 10, 0, tzinfo=KOLKATA)
+    engine = ScalpShadowEngine(
+        settings(tmp_path),
+        execution_token="FUT1",
+        kill_switch_active=False,
+        auto_paper_enabled=True,
+        clock=lambda: now,
+        record_ticks=False,
+    )
+    latest = tick(now, role="execution", token="FUT1", symbol="FUT", lot_size=65)
+    older = replace(
+        latest,
+        timestamp=now - timedelta(seconds=1),
+        received_at=now,
+    )
+
+    engine.on_tick(latest)
+    engine.on_tick(older)
+
+    assert engine.health()["rejected_out_of_order_execution_ticks"] == 1
 
 
 def test_tick_replay_uses_same_engine_and_closes_end_of_data(tmp_path):
@@ -360,6 +505,7 @@ def test_service_is_isolated_from_release57_timer_and_agent():
     assert "StartLimitBurst=5" in service
     assert "RestartSec=60" in service
     assert "TimeoutStopSec=20" in service
+    assert "WorkingDirectory=/opt/tradebot/logs" in service
 
     start_timer = (root / "deploy/tradebot-scalp-shadow.timer").read_text(encoding="utf-8")
     stop_timer = (root / "deploy/tradebot-scalp-shadow-stop.timer").read_text(encoding="utf-8")

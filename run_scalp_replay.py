@@ -15,7 +15,7 @@ from src.scalp_shadow import (
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Replay recorded Release 6 Angel One scalp ticks")
+    parser = argparse.ArgumentParser(description="Replay recorded Release 6.1 Angel One scalp ticks")
     parser.add_argument("--config", default="config.example.yaml", help="Path to config YAML")
     parser.add_argument("--ticks", required=True, nargs="+", help="Tick JSONL files")
     parser.add_argument("--output", required=True, help="Backtest report JSON")

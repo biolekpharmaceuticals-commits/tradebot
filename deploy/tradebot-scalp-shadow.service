@@ -1,5 +1,5 @@
 [Unit]
-Description=Tradebot Release 6 paper-only scalp shadow
+Description=Tradebot Release 6.1 cost-aware paper-only scalp shadow
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=600
@@ -9,7 +9,9 @@ StartLimitBurst=5
 Type=simple
 User=tradebot
 Group=tradebot
-WorkingDirectory=/opt/tradebot/app
+# SmartAPI creates relative SDK logs during authentication. Keep its working
+# directory inside the only writable service path instead of the read-only app tree.
+WorkingDirectory=/opt/tradebot/logs
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=TRADEBOT_CONFIG=/etc/tradebot/config.yaml
 EnvironmentFile=/etc/tradebot/tradebot.env
