@@ -11,6 +11,8 @@ from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .scalp_execution import ExecutionReadinessSettings, load_execution_readiness
+
 KOLKATA = ZoneInfo("Asia/Kolkata")
 SCALP_RELEASE = "6.1"
 
@@ -144,6 +146,7 @@ class ScalpShadowSettings:
     max_spread_bps: float
     max_tick_age_ms: int
     slippage_bps: float
+    execution_readiness: ExecutionReadinessSettings
     cost_model: FuturesCostModel
     stop_bps: float
     target_bps: float
@@ -206,6 +209,7 @@ def load_scalp_shadow_settings(config: object, base_dir: Path) -> ScalpShadowSet
         max_spread_bps=float(values.get("max_spread_bps", 4)),
         max_tick_age_ms=int(values.get("max_tick_age_ms", 2500)),
         slippage_bps=float(values.get("slippage_bps", 0.5)),
+        execution_readiness=load_execution_readiness(values.get("execution_readiness")),
         cost_model=cost_model,
         stop_bps=float(values.get("stop_bps", 3)),
         target_bps=float(values.get("target_bps", 6)),
@@ -253,6 +257,7 @@ def validate_scalp_shadow_config(config: object) -> dict:
         raise ValueError("scalp_shadow.live_order_enabled must remain false")
     if not isinstance(config.get("paper_execution_enabled", False), bool):
         raise ValueError("scalp_shadow.paper_execution_enabled must be a boolean")
+    load_execution_readiness(config.get("execution_readiness"))
 
     signal = config.get("signal_instrument", {})
     if enabled:

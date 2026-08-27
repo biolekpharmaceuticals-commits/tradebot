@@ -219,6 +219,13 @@ Release 6.1 is a separate continuously running research service. It does not mod
 - NIFTY 50 spot index token `99926000` for signals
 - The dynamically resolved nearest NIFTY futures token for simulated execution quotes
 
+The Release 6.1 execution-readiness layer still has no live order transport. It keeps
+the SmartAPI REST connection pooled, models a rolling maximum of eight order-changing
+actions per second per exchange segment, reserves half of that capacity for exits and
+cancellations, prioritizes risk-reducing intents, rejects market/IOC order types, locks
+duplicates after ambiguous timeouts, and reports p50/p95/p99 latency samples. These are
+dry-run controls for review and testing; they do not make live orders available.
+
 The engine records timestamped ticks, rejects stale/future/out-of-order data, builds closed one-minute and five-minute bars, and generates a candidate only when both EMA trends align with a configurable multi-bar one-minute breakout and bounded ATR. Stops and targets scale with ATR inside hard bounds. A detected bar gap blocks signal evaluation for a configurable recovery window.
 
 Paper entry additionally requires a current ordered futures bid/ask, a spread small relative to the stop, market hours, environment-level auto-paper approval, inactive kill switch, daily limits, a positive target after all modeled costs, the configured minimum net reward-to-risk ratio, and a one-lot maximum loss within the configured risk budget.

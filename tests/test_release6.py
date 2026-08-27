@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -23,7 +25,19 @@ from src.scalp_shadow import (
     replay_ticks,
     validate_scalp_shadow_config,
 )
-from src.scalp_stream import _sanitized_response_error, parse_smartapi_tick
+from src.scalp_execution import (
+    ExecutionIntent,
+    LatencyTelemetry,
+    PriorityIntentQueue,
+    SegmentActionLimiter,
+    load_execution_readiness,
+)
+from src.scalp_stream import (
+    SMARTAPI_HTTP_POOL,
+    _sanitized_response_error,
+    _smart_connect_factory,
+    parse_smartapi_tick,
+)
 
 KOLKATA = ZoneInfo("Asia/Kolkata")
 
@@ -130,6 +144,107 @@ def test_scalp_config_is_paper_only_and_tightly_bounded(tmp_path):
         validate_scalp_shadow_config(
             {**base, "signal_instrument": {"exchange": "NSE", "symbol": "NIFTY BANK", "token": "99926009"}}
         )
+    with pytest.raises(ValueError, match="live_transport_enabled"):
+        validate_scalp_shadow_config(
+            {
+                **base,
+                "execution_readiness": {"live_transport_enabled": True},
+            }
+        )
+    with pytest.raises(ValueError, match="1 to 8"):
+        validate_scalp_shadow_config(
+            {
+                **base,
+                "execution_readiness": {"max_actions_per_second": 9},
+            }
+        )
+
+
+def test_execution_limiter_reserves_half_capacity_for_exits():
+    now = [100.0]
+    configured = load_execution_readiness({})
+    limiter = SegmentActionLimiter(configured, clock=lambda: now[0])
+
+    entries = [limiter.admit("NFO", "NEW_ENTRY") for _ in range(5)]
+    exits = [limiter.admit("NFO", "EXIT") for _ in range(4)]
+
+    assert [allowed for allowed, _ in entries] == [True, True, True, True, False]
+    assert all(allowed for allowed, _ in exits)
+    assert limiter.admit("NFO", "CANCEL")[0] is False
+    assert limiter.admit("NSE", "NEW_ENTRY")[0] is True
+    now[0] += 1.001
+    assert limiter.admit("NFO", "NEW_ENTRY")[0] is True
+
+
+def test_execution_queue_prioritizes_risk_reduction_and_blocks_market_orders():
+    configured = load_execution_readiness({})
+    queue = PriorityIntentQueue(configured, clock=lambda: 100.0)
+
+    entry = ExecutionIntent("entry-1", "NFO", "NEW_ENTRY", "LIMIT", 100.0)
+    exit_intent = ExecutionIntent("exit-1", "NFO", "EXIT", "LIMIT", 100.1)
+    market = ExecutionIntent("entry-2", "NFO", "NEW_ENTRY", "MARKET", 100.2)
+    ioc = ExecutionIntent("entry-3", "NFO", "NEW_ENTRY", "LIMIT", 100.3, "IOC")
+    assert queue.enqueue(entry)[0] is True
+    assert queue.enqueue(exit_intent)[0] is True
+    assert queue.enqueue(market)[0] is False
+    assert queue.enqueue(ioc)[0] is False
+    assert queue.pop() == exit_intent
+    assert queue.pop() == entry
+
+
+def test_execution_queue_locks_duplicate_and_ambiguous_intents_until_reconciled():
+    now = [100.0]
+    configured = load_execution_readiness({"ambiguous_lock_seconds": 30})
+    queue = PriorityIntentQueue(configured, clock=lambda: now[0])
+    intent = ExecutionIntent("signal-1", "NFO", "NEW_ENTRY", "LIMIT", now[0])
+
+    assert queue.enqueue(intent)[0] is True
+    assert queue.enqueue(intent)[0] is False
+    queue.pop()
+    queue.mark_ambiguous(intent.dedupe_key)
+    now[0] += 31
+    assert queue.reconciliation_due(intent.dedupe_key) is True
+    assert queue.enqueue(intent)[0] is False
+    queue.reconcile(intent.dedupe_key)
+    assert queue.enqueue(intent)[0] is True
+
+
+def test_latency_telemetry_reports_bounded_percentiles():
+    telemetry = LatencyTelemetry(max_samples=10)
+    for value in range(1, 11):
+        telemetry.record("broker_ack", float(value))
+
+    snapshot = telemetry.snapshot()["broker_ack"]
+
+    assert snapshot == {
+        "count": 10,
+        "p50_ms": 5.0,
+        "p95_ms": 10.0,
+        "p99_ms": 10.0,
+        "max_ms": 10.0,
+    }
+
+
+def test_smartapi_pool_is_bounded_and_disables_automatic_post_retries(monkeypatch):
+    assert SMARTAPI_HTTP_POOL == {
+        "pool_connections": 2,
+        "pool_maxsize": 4,
+        "max_retries": 0,
+        "pool_block": True,
+    }
+    captured = {}
+
+    def fake_connect(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "SmartApi", SimpleNamespace(SmartConnect=fake_connect))
+    _smart_connect_factory("redacted-api-key")
+
+    assert captured == {
+        "api_key": "redacted-api-key",
+        "pool": SMARTAPI_HTTP_POOL,
+    }
 
 
 def test_tick_aggregator_closes_one_and_five_minute_bars():
@@ -483,6 +598,7 @@ def test_release6_source_has_no_live_order_transport():
         (root / path).read_text(encoding="utf-8")
         for path in (
             "src/scalp_shadow.py",
+            "src/scalp_execution.py",
             "src/scalp_stream.py",
             "run_scalp_shadow.py",
             "run_scalp_replay.py",

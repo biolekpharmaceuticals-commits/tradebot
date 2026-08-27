@@ -26,6 +26,12 @@ REQUIRED_ENV = (
     "ANGEL_ONE_PIN",
     "ANGEL_ONE_TOTP_SECRET",
 )
+SMARTAPI_HTTP_POOL = {
+    "pool_connections": 2,
+    "pool_maxsize": 4,
+    "max_retries": 0,
+    "pool_block": True,
+}
 
 
 class AngelOneScalpRuntime:
@@ -96,6 +102,16 @@ class AngelOneScalpRuntime:
             "signal_instrument": signal,
             "execution_contract": execution,
             "cost_model": asdict(self.settings.cost_model),
+            "execution_readiness": {
+                **asdict(self.settings.execution_readiness),
+                "allowed_order_types": ["LIMIT", "STOPLOSS_LIMIT"],
+                "market_orders_allowed": False,
+                "ioc_orders_allowed": False,
+                "http_connection_pool": {
+                    "enabled": True,
+                    **SMARTAPI_HTTP_POOL,
+                },
+            },
             "paper_execution_enabled": self.settings.paper_execution_enabled,
             "live_orders_available": False,
         }
@@ -314,7 +330,7 @@ def _smart_connect_factory(api_key: str):
         from SmartApi import SmartConnect
     except ImportError:
         raise ScalpShadowError("smartapi-python is required for scalp market data") from None
-    return SmartConnect(api_key=api_key)
+    return SmartConnect(api_key=api_key, pool=dict(SMARTAPI_HTTP_POOL))
 
 
 def _smart_websocket_factory(jwt_token: str, api_key: str, client_code: str, feed_token: str):

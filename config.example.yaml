@@ -110,6 +110,12 @@ scalp_shadow:
   max_spread_bps: 4
   max_tick_age_ms: 2500
   slippage_bps: 0.5
+  execution_readiness:
+    live_transport_enabled: false
+    static_ipv4_required: true
+    max_actions_per_second: 8
+    max_entry_actions_per_second: 4
+    ambiguous_lock_seconds: 30
   cost_model:
     brokerage_per_order: 20
     stt_sell_bps: 5
