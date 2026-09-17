@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 
 from .scalp_execution import LatencyTelemetry
-from .scalp_shadow import SCALP_RELEASE, ScalpShadowError, ScalpShadowSettings
+from .scalp_shadow import ScalpShadowError, ScalpShadowSettings
 from .scalp_stream import AngelOneScalpRuntime, parse_smartapi_tick
+
+DIAGNOSTIC_RELEASE = "6.2"
 
 PHASE_DESCRIPTIONS = {
     "exchange_to_callback_ms": "Angel One exchange timestamp to VPS WebSocket callback",
@@ -39,7 +42,7 @@ def load_latency_snapshot(path: Path) -> dict | None:
 
 
 class LatencyMonitor:
-    """Bounded in-memory latency statistics with an atomic read-only status snapshot."""
+    """Bounded latency and execution-feed diagnostics with atomic snapshots."""
 
     def __init__(self, path: Path, *, flush_every_ticks: int = 100) -> None:
         if flush_every_ticks < 1:
@@ -47,10 +50,31 @@ class LatencyMonitor:
         self.path = path
         self.flush_every_ticks = flush_every_ticks
         self.telemetry = LatencyTelemetry(max_samples=2000)
+        self.execution_timing = LatencyTelemetry(max_samples=5000)
         self.session_started_at = datetime.now(timezone.utc)
         self._ticks_since_flush = 0
         self._lock = threading.RLock()
         self._local = threading.local()
+
+        self._execution_callbacks = 0
+        self._execution_accepted = 0
+        self._execution_rejected_out_of_order = 0
+        self._execution_rejected_stale = 0
+        self._execution_equal_timestamp = 0
+        self._execution_timestamp_advances = 0
+        self._execution_sequence = 0
+        self._last_execution_callback_perf: float | None = None
+        self._last_accepted_exchange_timestamp_ms: int | None = None
+        self._last_accepted_exchange_timestamp_iso: str | None = None
+        self._last_accepted_quote: tuple[float, float, float] | None = None
+        self._current_reorder_burst = 0
+        self._max_reorder_burst = 0
+        self._max_reorder_depth_ms = 0
+        self._reordered_quote_change_any = 0
+        self._reordered_last_price_changes = 0
+        self._reordered_bid_changes = 0
+        self._reordered_ask_changes = 0
+        self._recent_reorders: deque[dict] = deque(maxlen=25)
 
     def record(self, phase: str, milliseconds: float) -> None:
         with self._lock:
@@ -80,6 +104,94 @@ class LatencyMonitor:
             if isinstance(transport, (int, float)) and transport >= 0:
                 self.record("exchange_to_paper_result_ms", float(transport) + callback_to_result)
 
+    def observe_execution_tick(
+        self,
+        tick,
+        *,
+        raw_exchange_timestamp_ms: int,
+        callback_started_perf: float,
+        max_tick_age_ms: int,
+    ) -> str:
+        """Mirror the engine ordering guard without changing its accept/reject policy."""
+        with self._lock:
+            self._execution_sequence += 1
+            sequence = self._execution_sequence
+            self._execution_callbacks += 1
+
+            if self._last_execution_callback_perf is not None:
+                interarrival_ms = (callback_started_perf - self._last_execution_callback_perf) * 1000
+                if interarrival_ms >= 0:
+                    self.execution_timing.record("callback_interarrival_ms", interarrival_ms)
+            self._last_execution_callback_perf = callback_started_perf
+
+            age_ms = (tick.received_at - tick.timestamp).total_seconds() * 1000
+            previous_timestamp_ms = self._last_accepted_exchange_timestamp_ms
+            previous_quote = self._last_accepted_quote
+
+            if age_ms < -250 or age_ms > max_tick_age_ms:
+                self._execution_rejected_stale += 1
+                self._current_reorder_burst = 0
+                return "stale_or_future"
+
+            if previous_timestamp_ms is not None and raw_exchange_timestamp_ms < previous_timestamp_ms:
+                self._execution_rejected_out_of_order += 1
+                self._current_reorder_burst += 1
+                self._max_reorder_burst = max(self._max_reorder_burst, self._current_reorder_burst)
+                reorder_delta_ms = raw_exchange_timestamp_ms - previous_timestamp_ms
+                self._max_reorder_depth_ms = max(self._max_reorder_depth_ms, abs(reorder_delta_ms))
+
+                quote = (float(tick.last_price), float(tick.bid), float(tick.ask))
+                quote_changes = {
+                    "last_price": bool(previous_quote and quote[0] != previous_quote[0]),
+                    "bid": bool(previous_quote and quote[1] != previous_quote[1]),
+                    "ask": bool(previous_quote and quote[2] != previous_quote[2]),
+                }
+                if any(quote_changes.values()):
+                    self._reordered_quote_change_any += 1
+                if quote_changes["last_price"]:
+                    self._reordered_last_price_changes += 1
+                if quote_changes["bid"]:
+                    self._reordered_bid_changes += 1
+                if quote_changes["ask"]:
+                    self._reordered_ask_changes += 1
+
+                self._recent_reorders.append(
+                    {
+                        "execution_callback_sequence": sequence,
+                        "received_at": tick.received_at.isoformat(),
+                        "incoming_exchange_timestamp_ms": raw_exchange_timestamp_ms,
+                        "incoming_exchange_timestamp": tick.timestamp.isoformat(),
+                        "previous_accepted_exchange_timestamp_ms": previous_timestamp_ms,
+                        "previous_accepted_exchange_timestamp": self._last_accepted_exchange_timestamp_iso,
+                        "reorder_delta_ms": reorder_delta_ms,
+                        "reorder_depth_ms": abs(reorder_delta_ms),
+                        "last_price": float(tick.last_price),
+                        "bid": float(tick.bid),
+                        "ask": float(tick.ask),
+                        "quote_changed_vs_last_accepted": quote_changes,
+                        "consecutive_reorder_burst": self._current_reorder_burst,
+                    }
+                )
+                return "out_of_order"
+
+            self._execution_accepted += 1
+            self._current_reorder_burst = 0
+            if previous_timestamp_ms is not None:
+                exchange_step_ms = raw_exchange_timestamp_ms - previous_timestamp_ms
+                self.execution_timing.record("accepted_exchange_timestamp_step_ms", exchange_step_ms)
+                if exchange_step_ms == 0:
+                    self._execution_equal_timestamp += 1
+                else:
+                    self._execution_timestamp_advances += 1
+            self._last_accepted_exchange_timestamp_ms = raw_exchange_timestamp_ms
+            self._last_accepted_exchange_timestamp_iso = tick.timestamp.isoformat()
+            self._last_accepted_quote = (
+                float(tick.last_price),
+                float(tick.bid),
+                float(tick.ask),
+            )
+            return "accepted"
+
     def end_tick(self) -> None:
         self._local.tick_started_perf = None
         self._local.exchange_to_callback_ms = None
@@ -93,12 +205,47 @@ class LatencyMonitor:
         if should_flush:
             self.flush(force=True)
 
+    def _execution_feed_snapshot(self) -> dict:
+        callbacks = self._execution_callbacks
+        accepted = self._execution_accepted
+        reordered = self._execution_rejected_out_of_order
+        stale = self._execution_rejected_stale
+        timing = self.execution_timing.snapshot()
+        return {
+            "status": "ok",
+            "ordering_policy": "Reject stale/future ticks first, then reject execution ticks older than the latest accepted exchange timestamp. Equal timestamps remain accepted.",
+            "execution_callbacks": callbacks,
+            "accepted_ticks": accepted,
+            "rejected_out_of_order_ticks": reordered,
+            "rejected_stale_or_future_ticks": stale,
+            "acceptance_rate_pct": round(accepted / callbacks * 100, 4) if callbacks else None,
+            "out_of_order_rate_pct": round(reordered / callbacks * 100, 4) if callbacks else None,
+            "stale_or_future_rate_pct": round(stale / callbacks * 100, 4) if callbacks else None,
+            "equal_exchange_timestamp_ticks": self._execution_equal_timestamp,
+            "exchange_timestamp_advance_ticks": self._execution_timestamp_advances,
+            "max_reorder_depth_ms": self._max_reorder_depth_ms,
+            "current_consecutive_reorder_burst": self._current_reorder_burst,
+            "max_consecutive_reorder_burst": self._max_reorder_burst,
+            "last_accepted_exchange_timestamp_ms": self._last_accepted_exchange_timestamp_ms,
+            "last_accepted_exchange_timestamp": self._last_accepted_exchange_timestamp_iso,
+            "callback_interarrival_ms": timing.get("callback_interarrival_ms"),
+            "accepted_exchange_timestamp_step_ms": timing.get("accepted_exchange_timestamp_step_ms"),
+            "reordered_quote_changes": {
+                "any": self._reordered_quote_change_any,
+                "last_price": self._reordered_last_price_changes,
+                "bid": self._reordered_bid_changes,
+                "ask": self._reordered_ask_changes,
+            },
+            "recent_reorders": list(self._recent_reorders),
+        }
+
     def snapshot(self) -> dict:
         with self._lock:
             phases = self.telemetry.snapshot()
+            execution_feed = self._execution_feed_snapshot()
         return {
             "status": "ok",
-            "release": SCALP_RELEASE,
+            "release": DIAGNOSTIC_RELEASE,
             "mode": "paper_shadow",
             "live_orders_available": False,
             "session_started_at": self.session_started_at.isoformat(),
@@ -109,6 +256,7 @@ class LatencyMonitor:
             ),
             "phase_descriptions": PHASE_DESCRIPTIONS,
             "phases": phases,
+            "execution_feed_diagnostics": execution_feed,
         }
 
     def flush(self, *, force: bool = False) -> None:
@@ -175,7 +323,7 @@ class _TimedBroker:
 
 
 class LatencyAngelOneScalpRuntime(AngelOneScalpRuntime):
-    """Release 6.1 runtime with paper-only end-to-end latency instrumentation."""
+    """Release 6.2 diagnostics wrapper around the fail-closed paper scalp runtime."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -188,14 +336,29 @@ class LatencyAngelOneScalpRuntime(AngelOneScalpRuntime):
         self.latency = LatencyMonitor(latency_path_for(self.settings))
         self.engine.strategy = _TimedStrategy(self.engine.strategy, self.latency)
         self.engine.broker = _TimedBroker(self.engine.broker, self.latency)
+        manifest["release"] = DIAGNOSTIC_RELEASE
         manifest["latency_telemetry"] = {
             "enabled": True,
             "status_file": str(self.latency.path),
             "flush_every_ticks": self.latency.flush_every_ticks,
             "phases": PHASE_DESCRIPTIONS,
+            "execution_feed_diagnostics": {
+                "enabled": True,
+                "ordering_policy_unchanged": True,
+                "recent_reorder_samples": 25,
+            },
         }
         self._write_manifest(manifest)
-        self.engine.audit.write("latency_telemetry_ready", manifest["latency_telemetry"])
+        self.engine.audit.write(
+            "release_6_2_feed_diagnostics_ready",
+            {
+                "release": DIAGNOSTIC_RELEASE,
+                "live_orders_available": False,
+                "paper_execution_enabled": self.settings.paper_execution_enabled,
+                "status_file": str(self.latency.path),
+                "ordering_policy_unchanged": True,
+            },
+        )
         self.latency.flush(force=True)
         return manifest
 
@@ -215,7 +378,7 @@ class LatencyAngelOneScalpRuntime(AngelOneScalpRuntime):
             )
         except ScalpShadowError as exc:
             self.latency.record("ws_parse_ms", (perf_counter() - parse_started) * 1000)
-            self.engine.audit.write("stream_message_rejected", {"reason": str(exc)})
+            self.engine.audit.write("stream_message_rejected", {"release": DIAGNOSTIC_RELEASE, "reason": str(exc)})
             return
 
         self.latency.record("ws_parse_ms", (perf_counter() - parse_started) * 1000)
@@ -223,6 +386,15 @@ class LatencyAngelOneScalpRuntime(AngelOneScalpRuntime):
         usable_transport = transport_ms if transport_ms >= 0 else None
         if usable_transport is not None:
             self.latency.record("exchange_to_callback_ms", usable_transport)
+
+        if tick.role == "execution":
+            raw_timestamp_ms = _raw_exchange_timestamp_ms(message, tick)
+            self.latency.observe_execution_tick(
+                tick,
+                raw_exchange_timestamp_ms=raw_timestamp_ms,
+                callback_started_perf=callback_started,
+                max_tick_age_ms=self.settings.max_tick_age_ms,
+            )
 
         self.latency.begin_tick(callback_started, usable_transport)
         engine_started = perf_counter()
@@ -235,3 +407,12 @@ class LatencyAngelOneScalpRuntime(AngelOneScalpRuntime):
             )
             self.latency.end_tick()
             self.latency.tick_complete()
+
+
+def _raw_exchange_timestamp_ms(message: object, tick) -> int:
+    if isinstance(message, dict):
+        try:
+            return int(message["exchange_timestamp"])
+        except (KeyError, TypeError, ValueError):
+            pass
+    return int(round(tick.timestamp.timestamp() * 1000))
