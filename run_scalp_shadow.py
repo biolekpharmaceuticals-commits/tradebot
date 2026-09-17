@@ -7,7 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import load_config
-from src.scalp_stream import AngelOneScalpRuntime
+from src.scalp_latency import LatencyAngelOneScalpRuntime
 
 KOLKATA = ZoneInfo("Asia/Kolkata")
 MARKET_START = time(9, 15)
@@ -40,7 +40,7 @@ def main() -> None:
         raise SystemExit(0 if market_session_open(datetime.now(KOLKATA)) else 1)
 
     config = load_config(Path(args.config))
-    runtime = AngelOneScalpRuntime(config)
+    runtime = LatencyAngelOneScalpRuntime(config)
     manifest = runtime.prepare()
     print(json.dumps(manifest, indent=2, default=str))
     if not args.prepare_only:
