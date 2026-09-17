@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.config import load_config
+from src.scalp_latency import latency_path_for, load_latency_snapshot
 from src.scalp_shadow import KOLKATA, SCALP_RELEASE, Tick, load_scalp_shadow_settings
 
 
@@ -23,6 +24,7 @@ def main() -> None:
     latest_tick = _latest_tick(settings.tick_log_dir)
     events = _latest_json_lines(settings.decision_log, args.events)
     portfolio = _read_mapping(settings.state_file)
+    latency = load_latency_snapshot(latency_path_for(settings))
     now = datetime.now(KOLKATA)
     market_window = now.weekday() < 5 and 9 <= now.hour <= 15
     age_seconds = (
@@ -49,6 +51,7 @@ def main() -> None:
                 "auto_paper_trading_enabled": config.safety.auto_paper_trading_enabled,
                 "latest_tick": latest_tick.public_record() if latest_tick else None,
                 "latest_tick_age_seconds": age_seconds,
+                "latency": latency,
                 "portfolio": portfolio,
                 "recent_events": events,
             },
